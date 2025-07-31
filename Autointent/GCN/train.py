@@ -1,25 +1,24 @@
 # train.py
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModel
-from sklearn.metrics import classification_report
-from tqdm import tqdm
 import os
-import requests
 import zipfile
 
+import numpy as np
+import requests
+import torch
+import torch.nn as nn
+from datasets import load_dataset
 from mlgcn_model import TextMLGCN
+from sklearn.metrics import classification_report
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
+from transformers import AutoModel, AutoTokenizer
 
 CONFIG = {
     # Data and Models
     "dataset_name": "DeepPavlov/events",
     "bert_model_name": "bert-base-uncased",
-    "label_embedding_type": "glove",
-    "glove_file_path": "./glove.6B.300d.txt",
-    "label_embedding_dim": 300,
+    "label_embedding_type": "glove", 
+    "label_embedding_dim": 300, # For GloVe, must be 50, 100, 200, or 300
     "cache_dir": "./.cache",
 
     # Model Hyperparameters
@@ -35,49 +34,45 @@ CONFIG = {
 }
 
 def _ensure_glove_is_ready(config):
-    glove_path = config["glove_file_path"]
-    if os.path.exists(glove_path):
-        print("Glove file found.")
-        return
+    dim = config["label_embedding_dim"]
+    glove_filename = f"glove.6B.{dim}d.txt"
+    glove_path = f"./{glove_filename}"
 
-    print("Glove file not found. Starting download...")
-    os.makedirs(os.path.dirname(glove_path) or '.', exist_ok=True)
+    if os.path.exists(glove_path):
+        print(f"Glove file found: {glove_path}")
+        return glove_path
+
+    print(f"Glove file not found. Starting download for dimension {dim}...")
     
     glove_zip_url = 'http://nlp.stanford.edu/data/glove.6B.zip'
+    os.makedirs(config["cache_dir"], exist_ok=True)
     zip_filename = os.path.join(config["cache_dir"], 'glove.6B.zip')
     
-    os.makedirs(config["cache_dir"], exist_ok=True)
-
     try:
         response = requests.get(glove_zip_url, stream=True)
         response.raise_for_status()
         total_size = int(response.headers.get('content-length', 0))
         
         with open(zip_filename, 'wb') as f, tqdm(
-            desc="Downloading glove.6B.zip",
-            total=total_size,
-            unit='iB',
-            unit_scale=True,
-            unit_divisor=1024,
+            desc="Downloading glove.6B.zip", total=total_size, unit='iB',
+            unit_scale=True, unit_divisor=1024,
         ) as bar:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
                 bar.update(len(chunk))
 
-        print("\nUnzipping files...")
+        print(f"\nUnzipping required file: {glove_filename}...")
         with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
-            # Extract only the required file to the target path's directory
-            file_to_extract = os.path.basename(glove_path)
-            zip_ref.extract(file_to_extract, path=os.path.dirname(glove_path) or '.')
+            zip_ref.extract(glove_filename, path='.')
         
-        print(f"Glove file '{os.path.basename(glove_path)}' extracted successfully.")
+        print(f"Glove file '{glove_filename}' extracted successfully.")
         os.remove(zip_filename)
         print("Cleaned up zip file.")
+        return glove_path
 
     except Exception as e:
         print(f"An error occurred during Glove download/unzip: {e}")
-        if os.path.exists(zip_filename):
-            os.remove(zip_filename)
+        if os.path.exists(zip_filename): os.remove(zip_filename)
         raise
 
 class LabelEmbeddingFactory:
@@ -130,7 +125,6 @@ def get_or_create_bert_embeddings(config, split_name, texts):
         tokenizer = AutoTokenizer.from_pretrained(config["bert_model_name"])
         bert_model = AutoModel.from_pretrained(config["bert_model_name"])
         
-        # This function is defined just for local scope to pass to the helper
         def _get_embeddings_from_texts(texts_to_process, model, tokenizer, device):
             model.to(device)
             model.eval()
@@ -139,18 +133,13 @@ def get_or_create_bert_embeddings(config, split_name, texts):
             for i in tqdm(range(0, len(texts_to_process), 32), desc="Calculating BERT Embeddings"):
                 batch_texts = texts_to_process[i:i + 32]
                 inputs = tokenizer(
-                    batch_texts, 
-                    return_tensors="pt", 
-                    padding=True, 
-                    truncation=True, 
-                    max_length=512
+                    batch_texts, return_tensors="pt", padding=True, 
+                    truncation=True, max_length=512
                 ).to(device)
-                
                 with torch.no_grad():
                     outputs = model(**inputs)
                     embeddings = outputs.last_hidden_state.mean(dim=1)
                 all_embeddings.append(embeddings.cpu())
-                
             return torch.cat(all_embeddings, dim=0)
 
         embeddings = _get_embeddings_from_texts(texts, bert_model, tokenizer, config["device"])
@@ -184,35 +173,30 @@ def prepare_data(config):
 def train_and_evaluate(config):
     print(f"Using device: {config['device']}")
     
+    glove_path = None
     if config["label_embedding_type"] == "glove":
-        _ensure_glove_is_ready(config)
+        if config["label_embedding_dim"] not in [50, 100, 200, 300]:
+            raise ValueError("For glove.6B, label_embedding_dim must be 50, 100, 200, or 300.")
+        glove_path = _ensure_glove_is_ready(config)
 
     (
-        train_loader, 
-        test_loader, 
-        full_train_labels, 
-        num_classes, 
-        label_names,
-        bert_feature_dim
+        train_loader, test_loader, full_train_labels, num_classes, 
+        label_names, bert_feature_dim
     ) = prepare_data(config)
 
     emb_factory = LabelEmbeddingFactory(num_classes, config["label_embedding_dim"])
     if config["label_embedding_type"] == "glove":
-        if config["label_embedding_dim"] not in [50, 100, 200, 300]:
-             print(f"Warning: Glove embedding dim is {config['label_embedding_dim']}. Common values are 50, 100, 200, 300.")
-        label_embeddings = emb_factory.create_from_glove(label_names, config["glove_file_path"])
+        label_embeddings = emb_factory.create_from_glove(label_names, glove_path)
     elif config["label_embedding_type"] == "one_hot":
         config["label_embedding_dim"] = num_classes
         label_embeddings = emb_factory.create_one_hot()
-    else:
+    else: # random
         label_embeddings = emb_factory.create_random()
 
     model = TextMLGCN(
-        num_classes=num_classes,
-        bert_feature_dim=bert_feature_dim,
+        num_classes=num_classes, bert_feature_dim=bert_feature_dim,
         label_embedding_dim=config["label_embedding_dim"],
-        gcn_hidden_dims=config["gcn_hidden_dims"],
-        p_reweight=config["p_reweight"],
+        gcn_hidden_dims=config["gcn_hidden_dims"], p_reweight=config["p_reweight"],
         tau_threshold=config["tau_threshold"]
     )
     
@@ -244,8 +228,7 @@ def train_and_evaluate(config):
     
     print("\nStarting evaluation...")
     model.eval()
-    all_preds = []
-    all_true = []
+    all_preds, all_true = [], []
     with torch.no_grad():
         for bert_features, labels in tqdm(test_loader, desc="Evaluating"):
             bert_features = bert_features.to(config["device"])
