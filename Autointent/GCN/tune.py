@@ -25,8 +25,8 @@ GCN_ARCHITECTURES_MAP = {
 def objective(trial):
     config = BASE_CONFIG.copy()
 
-    config['epochs'] = trial.suggest_categorical('epochs', [10, 20, 40, 80])
-    config['learning_rate'] = trial.suggest_categorical('learning_rate', [1e-4, 1e-3, 1e-2])
+    config['epochs'] = trial.suggest_int('epochs', 10, 100, log=True)
+    config['learning_rate'] = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
     config['batch_size'] = trial.suggest_categorical('batch_size', [16, 32, 64])
     
     config['p_reweight'] = trial.suggest_float('p_reweight', 0.0, 0.9, step=0.1)
@@ -49,7 +49,7 @@ def main():
     )
     
     try:
-        study.optimize(objective, n_trials=20000, timeout=20800)
+        study.optimize(objective, n_trials=200, timeout=20800)
     except KeyboardInterrupt:
         print("Tuning stopped manually by user.")
 
