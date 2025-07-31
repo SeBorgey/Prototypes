@@ -1,17 +1,17 @@
 # train.py
-import os
-import zipfile
-
-import numpy as np
-import requests
 import torch
 import torch.nn as nn
-from datasets import load_dataset
-from mlgcn_model import TextMLGCN
-from sklearn.metrics import classification_report
 from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModel
+from sklearn.metrics import classification_report
 from tqdm import tqdm
-from transformers import AutoModel, AutoTokenizer
+import os
+import requests
+import zipfile
+
+from mlgcn_model import TextMLGCN
 
 CONFIG = {
     # Data and Models
@@ -119,7 +119,8 @@ def get_or_create_bert_embeddings(config, split_name, texts):
     
     if os.path.exists(cache_path):
         print(f"Loading {split_name} BERT embeddings from cache: {cache_path}")
-        return torch.load(cache_path)
+        # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+        return torch.load(cache_path, weights_only=True)
     else:
         print(f"Cache not found for {split_name}. Calculating BERT embeddings...")
         tokenizer = AutoTokenizer.from_pretrained(config["bert_model_name"])
