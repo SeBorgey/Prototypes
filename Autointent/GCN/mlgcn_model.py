@@ -123,7 +123,7 @@ if __name__ == '__main__':
     loss_fn = nn.BCEWithLogitsLoss()
     loss = loss_fn(logits, batch_labels)
     
-    print(f"Model created successfully.")
+    print("Model created successfully.")
     print(f"Device: {device}")
     print(f"Correlation matrix shape: {model.correlation_matrix.shape}")
     print(f"Logits shape: {logits.shape}")
