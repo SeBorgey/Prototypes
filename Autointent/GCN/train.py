@@ -15,9 +15,10 @@ CONFIG = {
     # Data and Models
     "dataset_name": "DeepPavlov/events",
     "bert_model_name": "bert-base-uncased",
-    "label_embedding_type": "random", # "random", "one_hot", or "glove"
-    "glove_file_path": "./glove.6B.300d.txt", # Required if type is "glove"
+    "label_embedding_type": "glove", # "random", "one_hot", or "glove"
+    "glove_file_path": "./glove.6B.300d.txt",
     "label_embedding_dim": 300,
+    "cache_dir": "./.cache", # Directory to store cached embeddings
 
     # Model Hyperparameters
     "gcn_hidden_dims": [1024],
@@ -37,15 +38,18 @@ class LabelEmbeddingFactory:
         self.embedding_dim = embedding_dim
 
     def create_random(self):
+        print("Using randomly initialized label embeddings.")
         return torch.randn(self.num_classes, self.embedding_dim)
 
     def create_one_hot(self):
+        print("Using one-hot label embeddings.")
         return torch.eye(self.num_classes, self.embedding_dim)
 
     def create_from_glove(self, label_names, file_path):
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Glove file not found at: {file_path}")
+            raise FileNotFoundError(f"Glove file not found at: {file_path}. Please download it or change embedding type.")
             
+        print(f"Loading Glove embeddings from: {file_path}")
         embeddings_index = {}
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -55,11 +59,14 @@ class LabelEmbeddingFactory:
                 embeddings_index[word] = vector
         
         embedding_matrix = torch.randn(self.num_classes, self.embedding_dim)
+        found_count = 0
         for i, name in enumerate(label_names):
-            vector = embeddings_index.get(name)
+            vector = embeddings_index.get(name.split('_')[-1]) # Assumes 'class_name' format
             if vector is not None:
                 embedding_matrix[i] = torch.from_numpy(vector)
+                found_count += 1
         
+        print(f"--> Glove Status: Found vectors for {found_count} out of {self.num_classes} labels.")
         return embedding_matrix
 
 def get_bert_embeddings(texts, model, tokenizer, device, batch_size=32):
@@ -67,7 +74,7 @@ def get_bert_embeddings(texts, model, tokenizer, device, batch_size=32):
     model.eval()
     all_embeddings = []
     
-    for i in tqdm(range(0, len(texts), batch_size), desc="BERT Embedding"):
+    for i in tqdm(range(0, len(texts), batch_size), desc="Calculating BERT Embeddings"):
         batch_texts = texts[i:i + batch_size]
         inputs = tokenizer(
             batch_texts, 
@@ -79,26 +86,44 @@ def get_bert_embeddings(texts, model, tokenizer, device, batch_size=32):
         
         with torch.no_grad():
             outputs = model(**inputs)
-            # Use mean pooling of the last hidden state
             embeddings = outputs.last_hidden_state.mean(dim=1)
         all_embeddings.append(embeddings.cpu())
         
     return torch.cat(all_embeddings, dim=0)
 
+def get_or_create_bert_embeddings(config, split_name, texts):
+    os.makedirs(config["cache_dir"], exist_ok=True)
+    
+    safe_dataset_name = config["dataset_name"].replace('/', '_')
+    safe_bert_name = config["bert_model_name"].replace('/', '_')
+    cache_filename = f"emb_{split_name}_{safe_dataset_name}_{safe_bert_name}.pt"
+    cache_path = os.path.join(config["cache_dir"], cache_filename)
+    
+    if os.path.exists(cache_path):
+        print(f"Loading {split_name} BERT embeddings from cache: {cache_path}")
+        return torch.load(cache_path)
+    else:
+        print(f"Cache not found for {split_name}. Calculating BERT embeddings...")
+        tokenizer = AutoTokenizer.from_pretrained(config["bert_model_name"])
+        bert_model = AutoModel.from_pretrained(config["bert_model_name"])
+        
+        embeddings = get_bert_embeddings(texts, bert_model, tokenizer, config["device"])
+        
+        print(f"Saving {split_name} embeddings to cache: {cache_path}")
+        torch.save(embeddings, cache_path)
+        return embeddings
+
 def prepare_data(config):
     dataset = load_dataset(config["dataset_name"])
     num_classes = len(dataset['train'][0]['label'])
     
-    label_names = [f"class_{i}" for i in range(num_classes)]
-    
-    tokenizer = AutoTokenizer.from_pretrained(config["bert_model_name"])
-    bert_model = AutoModel.from_pretrained(config["bert_model_name"])
+    label_names = [f"class_{i}" for i in range(num_classes)] # Dummy names for GloVe
     
     train_texts = [item['utterance'] for item in dataset['train']]
     test_texts = [item['utterance'] for item in dataset['test']]
     
-    train_embeddings = get_bert_embeddings(train_texts, bert_model, tokenizer, config["device"])
-    test_embeddings = get_bert_embeddings(test_texts, bert_model, tokenizer, config["device"])
+    train_embeddings = get_or_create_bert_embeddings(config, 'train', train_texts)
+    test_embeddings = get_or_create_bert_embeddings(config, 'test', test_texts)
     
     train_labels = torch.tensor([item['label'] for item in dataset['train']], dtype=torch.float)
     test_labels = torch.tensor([item['label'] for item in dataset['test']], dtype=torch.float)
@@ -125,12 +150,12 @@ def train_and_evaluate(config):
 
     emb_factory = LabelEmbeddingFactory(num_classes, config["label_embedding_dim"])
     if config["label_embedding_type"] == "glove":
-        if config["label_embedding_dim"] != 300: # Example check
-            print("Warning: Glove embedding dim is usually 50, 100, 200, or 300.")
+        if config["label_embedding_dim"] not in [50, 100, 200, 300]:
+             print(f"Warning: Glove embedding dim is {config['label_embedding_dim']}. Common values are 50, 100, 200, 300.")
         label_embeddings = emb_factory.create_from_glove(label_names, config["glove_file_path"])
     elif config["label_embedding_type"] == "one_hot":
-        label_embeddings = emb_factory.create_one_hot()
         config["label_embedding_dim"] = num_classes
+        label_embeddings = emb_factory.create_one_hot()
     else:
         label_embeddings = emb_factory.create_random()
 
@@ -150,11 +175,12 @@ def train_and_evaluate(config):
     optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"])
     loss_function = nn.BCEWithLogitsLoss()
     
-    print("Starting training...")
+    print("\nStarting training...")
     for epoch in range(config["epochs"]):
         model.train()
         total_loss = 0
-        for bert_features, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{config['epochs']}"):
+        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{config['epochs']}", leave=False)
+        for bert_features, labels in progress_bar:
             bert_features, labels = bert_features.to(config["device"]), labels.to(config["device"])
             
             optimizer.zero_grad()
@@ -164,6 +190,7 @@ def train_and_evaluate(config):
             optimizer.step()
             
             total_loss += loss.item()
+            progress_bar.set_postfix(loss=f"{loss.item():.4f}")
         
         print(f"Epoch {epoch+1}, Average Loss: {total_loss / len(train_loader):.4f}")
     
