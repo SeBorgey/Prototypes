@@ -8,6 +8,8 @@ from transformers import AutoTokenizer, AutoModel
 from sklearn.metrics import classification_report
 from tqdm import tqdm
 import os
+import requests
+import zipfile
 
 from mlgcn_model import TextMLGCN
 
@@ -15,10 +17,10 @@ CONFIG = {
     # Data and Models
     "dataset_name": "DeepPavlov/events",
     "bert_model_name": "bert-base-uncased",
-    "label_embedding_type": "glove", # "random", "one_hot", or "glove"
+    "label_embedding_type": "glove",
     "glove_file_path": "./glove.6B.300d.txt",
     "label_embedding_dim": 300,
-    "cache_dir": "./.cache", # Directory to store cached embeddings
+    "cache_dir": "./.cache",
 
     # Model Hyperparameters
     "gcn_hidden_dims": [1024],
@@ -31,6 +33,52 @@ CONFIG = {
     "learning_rate": 0.01,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
 }
+
+def _ensure_glove_is_ready(config):
+    glove_path = config["glove_file_path"]
+    if os.path.exists(glove_path):
+        print("Glove file found.")
+        return
+
+    print("Glove file not found. Starting download...")
+    os.makedirs(os.path.dirname(glove_path) or '.', exist_ok=True)
+    
+    glove_zip_url = 'http://nlp.stanford.edu/data/glove.6B.zip'
+    zip_filename = os.path.join(config["cache_dir"], 'glove.6B.zip')
+    
+    os.makedirs(config["cache_dir"], exist_ok=True)
+
+    try:
+        response = requests.get(glove_zip_url, stream=True)
+        response.raise_for_status()
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(zip_filename, 'wb') as f, tqdm(
+            desc="Downloading glove.6B.zip",
+            total=total_size,
+            unit='iB',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as bar:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+                bar.update(len(chunk))
+
+        print("\nUnzipping files...")
+        with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+            # Extract only the required file to the target path's directory
+            file_to_extract = os.path.basename(glove_path)
+            zip_ref.extract(file_to_extract, path=os.path.dirname(glove_path) or '.')
+        
+        print(f"Glove file '{os.path.basename(glove_path)}' extracted successfully.")
+        os.remove(zip_filename)
+        print("Cleaned up zip file.")
+
+    except Exception as e:
+        print(f"An error occurred during Glove download/unzip: {e}")
+        if os.path.exists(zip_filename):
+            os.remove(zip_filename)
+        raise
 
 class LabelEmbeddingFactory:
     def __init__(self, num_classes, embedding_dim):
@@ -46,9 +94,6 @@ class LabelEmbeddingFactory:
         return torch.eye(self.num_classes, self.embedding_dim)
 
     def create_from_glove(self, label_names, file_path):
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Glove file not found at: {file_path}. Please download it or change embedding type.")
-            
         print(f"Loading Glove embeddings from: {file_path}")
         embeddings_index = {}
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -61,35 +106,13 @@ class LabelEmbeddingFactory:
         embedding_matrix = torch.randn(self.num_classes, self.embedding_dim)
         found_count = 0
         for i, name in enumerate(label_names):
-            vector = embeddings_index.get(name.split('_')[-1]) # Assumes 'class_name' format
+            vector = embeddings_index.get(name.split('_')[-1])
             if vector is not None:
                 embedding_matrix[i] = torch.from_numpy(vector)
                 found_count += 1
         
         print(f"--> Glove Status: Found vectors for {found_count} out of {self.num_classes} labels.")
         return embedding_matrix
-
-def get_bert_embeddings(texts, model, tokenizer, device, batch_size=32):
-    model.to(device)
-    model.eval()
-    all_embeddings = []
-    
-    for i in tqdm(range(0, len(texts), batch_size), desc="Calculating BERT Embeddings"):
-        batch_texts = texts[i:i + batch_size]
-        inputs = tokenizer(
-            batch_texts, 
-            return_tensors="pt", 
-            padding=True, 
-            truncation=True, 
-            max_length=512
-        ).to(device)
-        
-        with torch.no_grad():
-            outputs = model(**inputs)
-            embeddings = outputs.last_hidden_state.mean(dim=1)
-        all_embeddings.append(embeddings.cpu())
-        
-    return torch.cat(all_embeddings, dim=0)
 
 def get_or_create_bert_embeddings(config, split_name, texts):
     os.makedirs(config["cache_dir"], exist_ok=True)
@@ -107,7 +130,30 @@ def get_or_create_bert_embeddings(config, split_name, texts):
         tokenizer = AutoTokenizer.from_pretrained(config["bert_model_name"])
         bert_model = AutoModel.from_pretrained(config["bert_model_name"])
         
-        embeddings = get_bert_embeddings(texts, bert_model, tokenizer, config["device"])
+        # This function is defined just for local scope to pass to the helper
+        def _get_embeddings_from_texts(texts_to_process, model, tokenizer, device):
+            model.to(device)
+            model.eval()
+            all_embeddings = []
+            
+            for i in tqdm(range(0, len(texts_to_process), 32), desc="Calculating BERT Embeddings"):
+                batch_texts = texts_to_process[i:i + 32]
+                inputs = tokenizer(
+                    batch_texts, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True, 
+                    max_length=512
+                ).to(device)
+                
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    embeddings = outputs.last_hidden_state.mean(dim=1)
+                all_embeddings.append(embeddings.cpu())
+                
+            return torch.cat(all_embeddings, dim=0)
+
+        embeddings = _get_embeddings_from_texts(texts, bert_model, tokenizer, config["device"])
         
         print(f"Saving {split_name} embeddings to cache: {cache_path}")
         torch.save(embeddings, cache_path)
@@ -116,8 +162,7 @@ def get_or_create_bert_embeddings(config, split_name, texts):
 def prepare_data(config):
     dataset = load_dataset(config["dataset_name"])
     num_classes = len(dataset['train'][0]['label'])
-    
-    label_names = [f"class_{i}" for i in range(num_classes)] # Dummy names for GloVe
+    label_names = [f"class_{i}" for i in range(num_classes)]
     
     train_texts = [item['utterance'] for item in dataset['train']]
     test_texts = [item['utterance'] for item in dataset['test']]
@@ -139,6 +184,9 @@ def prepare_data(config):
 def train_and_evaluate(config):
     print(f"Using device: {config['device']}")
     
+    if config["label_embedding_type"] == "glove":
+        _ensure_glove_is_ready(config)
+
     (
         train_loader, 
         test_loader, 
