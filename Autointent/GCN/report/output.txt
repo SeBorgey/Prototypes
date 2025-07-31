@@ -1,0 +1,26 @@
+--- Optuna Tuning Report ---
+Number of finished trials: 200
+
+Best trials (Pareto front):
+
+--- Pareto Trial #1 ---
+  Trial Number: 115
+  Metrics: mAP=0.5389, OF1=0.6047
+  Hyperparameters:
+    epochs: 55
+    learning_rate: 0.00026602056339532855
+    batch_size: 32
+    p_reweight: 0.30000000000000004
+    tau_threshold: 0.7000000000000001
+    gcn_architecture: 4_layers_512_512_1024_2048
+
+--- Pareto Trial #2 ---
+  Trial Number: 149
+  Metrics: mAP=0.5387, OF1=0.6430
+  Hyperparameters:
+    epochs: 84
+    learning_rate: 0.00044040493310873924
+    batch_size: 16
+    p_reweight: 0.4
+    tau_threshold: 0.8
+    gcn_architecture: 1_layer_1024
