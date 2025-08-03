@@ -3,59 +3,27 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from datasets import load_dataset
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics import average_precision_score, f1_score
 import os
 
 from mlgcn_model import TextMLGCN
 
-def get_or_create_embeddings(texts, model, dim, cache_path):
-    if os.path.exists(cache_path):
-        embeddings = torch.load(cache_path)
-    else:
-        full_embeddings = model.encode(
-            texts, 
-            convert_to_tensor=True, 
-            normalize_embeddings=True
-        )
-        embeddings = full_embeddings[:, :dim]
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        torch.save(embeddings, cache_path)
-    return embeddings
+def get_cache_path(config, name, dim):
+    safe_ds = config["dataset_name"].replace("/", "_")
+    safe_model = config["embedding_model_name"].replace("/", "_")
+    return os.path.join(config["cache_dir"], f"emb_{name}_{safe_ds}_{safe_model}_{dim}.pt")
 
 def prepare_data(config):
     dataset = load_dataset(config["dataset_name"], cache_dir=config["cache_dir"])
     num_classes = len(dataset['train'][0]['label'])
-    
-    model = SentenceTransformer(
-        config["embedding_model_name"], 
-        cache_folder=config["cache_dir"],
-        device=config["device"]
-    )
-    
-    def get_cache_path(split_name, dim):
-        safe_ds = config["dataset_name"].replace("/", "_")
-        safe_model = config["embedding_model_name"].replace("/", "_")
-        return os.path.join(
-            config["cache_dir"], f"emb_{split_name}_{safe_ds}_{safe_model}_{dim}.pt"
-        )
 
-    train_texts = [item['utterance'] for item in dataset['train']]
-    test_texts = [item['utterance'] for item in dataset['test']]
-    label_names = [f"event type {i}" for i in range(num_classes)]
+    train_path = get_cache_path(config, "train", config["sentence_embedding_dim"])
+    test_path = get_cache_path(config, "test", config["sentence_embedding_dim"])
+    labels_path = get_cache_path(config, "labels", config["label_embedding_dim"])
 
-    train_embeddings = get_or_create_embeddings(
-        train_texts, model, config["sentence_embedding_dim"], 
-        get_cache_path("train", config["sentence_embedding_dim"])
-    )
-    test_embeddings = get_or_create_embeddings(
-        test_texts, model, config["sentence_embedding_dim"],
-        get_cache_path("test", config["sentence_embedding_dim"])
-    )
-    label_embeddings = get_or_create_embeddings(
-        label_names, model, config["label_embedding_dim"],
-        get_cache_path("labels", config["label_embedding_dim"])
-    )
+    train_embeddings = torch.load(train_path, weights_only=True)
+    test_embeddings = torch.load(test_path, weights_only=True)
+    label_embeddings = torch.load(labels_path, weights_only=True)
 
     train_labels = torch.tensor([item['label'] for item in dataset['train']], dtype=torch.float)
     test_labels = torch.tensor([item['label'] for item in dataset['test']], dtype=torch.float)

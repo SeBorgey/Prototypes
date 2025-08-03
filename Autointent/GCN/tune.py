@@ -1,6 +1,9 @@
 import optuna
 import torch
-from train import run_trial
+from train import run_trial, get_cache_path
+from datasets import load_dataset
+from sentence_transformers import SentenceTransformer
+import os
 
 BASE_CONFIG = {
     "dataset_name": "DeepPavlov/events",
@@ -22,6 +25,46 @@ GCN_ARCHITECTURES_MAP = {
     f"{len(arch)}_layer{'s' if len(arch) > 1 else ''}_{'_'.join(map(str, arch))}": arch
     for arch in GCN_ARCHITECTURES
 }
+def ensure_embeddings_cached(config):
+    print("--- Checking for cached embeddings ---")
+    dataset = load_dataset(config["dataset_name"], cache_dir=config["cache_dir"])
+    
+    tasks = {
+        "train": (config["sentence_embedding_dim"], [item['utterance'] for item in dataset['train']]),
+        "test": (config["sentence_embedding_dim"], [item['utterance'] for item in dataset['test']]),
+        "labels": (config["label_embedding_dim"], [f"event type {i}" for i in range(len(dataset['train'][0]['label']))])
+    }
+    
+    paths_to_check = [get_cache_path(config, name, dim) for name, (dim, _) in tasks.items()]
+    
+    if all(os.path.exists(p) for p in paths_to_check):
+        print("All embeddings found in cache. Skipping generation.")
+        return
+
+    print("Some embeddings are missing. Loading SentenceTransformer to generate them...")
+    model = SentenceTransformer(
+        config["embedding_model_name"], 
+        cache_folder=config["cache_dir"],
+        device=config["device"]
+    )
+
+    for name, (dim, texts) in tasks.items():
+        cache_path = get_cache_path(config, name, dim)
+        if not os.path.exists(cache_path):
+            print(f"Generating embeddings for '{name}' with dim={dim}...")
+            full_embeddings = model.encode(
+                texts, convert_to_tensor=True, normalize_embeddings=True, batch_size=2
+            )
+            embeddings = full_embeddings[:, :dim]
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            torch.save(embeddings.cpu(), cache_path)
+            print(f"Saved to {cache_path}")
+
+    print("Embedding generation complete. Releasing model from memory.")
+    del model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 def objective(trial):
     config = BASE_CONFIG.copy()
 
@@ -44,13 +87,15 @@ def objective(trial):
     return mAP, of1
 
 def main():
+    ensure_embeddings_cached(BASE_CONFIG)
+    
     study = optuna.create_study(
-        study_name="mlgcn_qwen_embedding_v1",
+        study_name="mlgcn_qwen_embedding_v2",
         directions=['maximize', 'maximize']
     )
     
     try:
-        study.optimize(objective, n_trials=5, timeout=20800)
+        study.optimize(objective, n_trials=200, timeout=20800)
     except KeyboardInterrupt:
         pass
 
@@ -66,7 +111,6 @@ def main():
         print(f"  Hyperparameters:")
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
-            
     fig1 = optuna.visualization.plot_param_importances(study, target_name="mAP", target=lambda t: t.values[0])
     fig1.update_layout(title="Hyperparameter Importances for mAP")
     fig1.show()
@@ -77,7 +121,6 @@ def main():
 
     fig3 = optuna.visualization.plot_pareto_front(study, target_names=["mAP", "OF1"])
     fig3.show()
-    
 
 if __name__ == "__main__":
     main()
