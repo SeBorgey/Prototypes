@@ -1,0 +1,64 @@
+--- Optuna Tuning Report ---
+Number of finished trials: 400
+
+Best trials (Pareto front):
+
+--- Pareto Trial #1 ---
+  Trial Number: 347
+  Metrics: mAP=0.6239, OF1=0.6523
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    epochs: 32
+    learning_rate: 0.0029005788174479453
+    batch_size: 32
+    p_reweight: 0.5
+    tau_threshold: 0.8
+    gcn_architecture: 1_layer_1024
+
+--- Pareto Trial #2 ---
+  Trial Number: 265
+  Metrics: mAP=0.6223, OF1=0.6625
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    epochs: 32
+    learning_rate: 0.0029005788174479453
+    batch_size: 32
+    p_reweight: 0.1
+    tau_threshold: 0.7000000000000001
+    gcn_architecture: 1_layer_1024
+
+--- Pareto Trial #3 ---
+  Trial Number: 332
+  Metrics: mAP=0.6216, OF1=0.6645
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    epochs: 81
+    learning_rate: 0.0004321624774786193
+    batch_size: 16
+    p_reweight: 0.1
+    tau_threshold: 0.8
+    gcn_architecture: 1_layer_1024
+
+--- Pareto Trial #4 ---
+  Trial Number: 161
+  Metrics: mAP=0.6213, OF1=0.6693
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    epochs: 41
+    learning_rate: 0.0022241241371800725
+    batch_size: 16
+    p_reweight: 0.7000000000000001
+    tau_threshold: 0.8
+    gcn_architecture: 1_layer_1024
+
+--- Pareto Trial #5 ---
+  Trial Number: 269
+  Metrics: mAP=0.6191, OF1=0.6730
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    epochs: 58
+    learning_rate: 0.0018490698388400862
+    batch_size: 16
+    p_reweight: 0.7000000000000001
+    tau_threshold: 0.8
+    gcn_architecture: 1_layer_1024
