@@ -7,11 +7,19 @@ import os
 
 BASE_CONFIG = {
     "dataset_name": "DeepPavlov/events",
-    "embedding_model_name": "Qwen/Qwen3-Embedding-0.6B",
-    "sentence_embedding_dim": 1024,
-    "label_embedding_dim": 512,
     "cache_dir": "./.cache",
     "device": "cuda" if torch.cuda.is_available() else "cpu",
+}
+
+EMBEDDING_MODELS = {
+    "Qwen/Qwen3-Embedding-0.6B": {
+        "max_dim": 1024,
+        "label_dim": 512
+    },
+    "NovaSearch/stella_en_400M_v5": {
+        "max_dim": 1024,
+        "label_dim": 512
+    },
 }
 
 GCN_ARCHITECTURES = [
@@ -25,48 +33,64 @@ GCN_ARCHITECTURES_MAP = {
     f"{len(arch)}_layer{'s' if len(arch) > 1 else ''}_{'_'.join(map(str, arch))}": arch
     for arch in GCN_ARCHITECTURES
 }
-def ensure_embeddings_cached(config):
-    print("--- Checking for cached embeddings ---")
-    dataset = load_dataset(config["dataset_name"], cache_dir=config["cache_dir"])
+def ensure_all_embeddings_cached(base_config, models_dict):
+    print("--- Checking for all potential cached embeddings ---")
+    dataset = load_dataset(base_config["dataset_name"], cache_dir=base_config["cache_dir"])
     
-    tasks = {
-        "train": (config["sentence_embedding_dim"], [item['utterance'] for item in dataset['train']]),
-        "test": (config["sentence_embedding_dim"], [item['utterance'] for item in dataset['test']]),
-        "labels": (config["label_embedding_dim"], [f"event type {i}" for i in range(len(dataset['train'][0]['label']))])
-    }
-    
-    paths_to_check = [get_cache_path(config, name, dim) for name, (dim, _) in tasks.items()]
-    
-    if all(os.path.exists(p) for p in paths_to_check):
-        print("All embeddings found in cache. Skipping generation.")
-        return
+    for model_name, model_info in models_dict.items():
+        print(f"\nVerifying embeddings for model: {model_name}")
+        
+        config = base_config.copy()
+        config["embedding_model_name"] = model_name
+        config["sentence_embedding_dim"] = model_info["max_dim"]
+        config["label_embedding_dim"] = model_info["label_dim"]
+        
+        tasks = {
+            "train": (config["sentence_embedding_dim"], [item['utterance'] for item in dataset['train']]),
+            "test": (config["sentence_embedding_dim"], [item['utterance'] for item in dataset['test']]),
+            "labels": (config["label_embedding_dim"], [f"event type {i}" for i in range(len(dataset['train'][0]['label']))])
+        }
 
-    print("Some embeddings are missing. Loading SentenceTransformer to generate them...")
-    model = SentenceTransformer(
-        config["embedding_model_name"], 
-        cache_folder=config["cache_dir"],
-        device=config["device"]
-    )
+        paths_to_check = [get_cache_path(config, name, dim) for name, (dim, _) in tasks.items()]
+        
+        if all(os.path.exists(p) for p in paths_to_check):
+            print("All embeddings for this model found in cache.")
+            continue
 
-    for name, (dim, texts) in tasks.items():
-        cache_path = get_cache_path(config, name, dim)
-        if not os.path.exists(cache_path):
-            print(f"Generating embeddings for '{name}' with dim={dim}...")
-            full_embeddings = model.encode(
-                texts, convert_to_tensor=True, normalize_embeddings=True, batch_size=2
-            )
-            embeddings = full_embeddings[:, :dim]
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            torch.save(embeddings.cpu(), cache_path)
-            print(f"Saved to {cache_path}")
+        print("Some embeddings are missing. Loading SentenceTransformer to generate them...")
+        model = SentenceTransformer(
+            config["embedding_model_name"], 
+            cache_folder=config["cache_dir"],
+            device=config["device"],
+            trust_remote_code=True
+        )
 
-    print("Embedding generation complete. Releasing model from memory.")
-    del model
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+        for name, (dim, texts) in tasks.items():
+            cache_path = get_cache_path(config, name, dim)
+            if not os.path.exists(cache_path):
+                print(f"Generating embeddings for '{name}' with dim={dim}...")
+                full_embeddings = model.encode(
+                    texts, convert_to_tensor=True, normalize_embeddings=True, batch_size=2
+                )
+                embeddings = full_embeddings[:, :dim]
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                torch.save(embeddings.cpu(), cache_path)
+                print(f"Saved to {cache_path}")
+
+        print(f"Finished for {model_name}. Releasing model from memory.")
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 def objective(trial):
     config = BASE_CONFIG.copy()
+    
+    model_name = trial.suggest_categorical('embedding_model_name', list(EMBEDDING_MODELS.keys()))
+    model_info = EMBEDDING_MODELS[model_name]
+    
+    config['embedding_model_name'] = model_name
+    config['sentence_embedding_dim'] = model_info['max_dim']
+    config['label_embedding_dim'] = model_info['label_dim']
 
     config['epochs'] = trial.suggest_int('epochs', 10, 100, log=True)
     config['learning_rate'] = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
@@ -87,15 +111,15 @@ def objective(trial):
     return mAP, of1
 
 def main():
-    ensure_embeddings_cached(BASE_CONFIG)
+    ensure_all_embeddings_cached(BASE_CONFIG, EMBEDDING_MODELS)
     
     study = optuna.create_study(
-        study_name="mlgcn_qwen_embedding_v2",
+        study_name="mlgcn_multimodel_embedding_v1",
         directions=['maximize', 'maximize']
     )
     
     try:
-        study.optimize(objective, n_trials=200, timeout=20800)
+        study.optimize(objective, n_trials=400, timeout=20800)
     except KeyboardInterrupt:
         pass
 
