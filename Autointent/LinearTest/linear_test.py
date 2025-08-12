@@ -28,7 +28,6 @@ def prepare_autointent_dataset(data_splits, all_labels):
         {"id": i, "name": name} for name, i in label_to_id.items()
     ]
     
-    # In your case 'dev' split is for validation
     if 'dev' in autointent_data:
         autointent_data['validation'] = autointent_data.pop('dev')
 
@@ -71,8 +70,6 @@ def run_evaluation(all_loaded_data):
     return results
 
 if __name__ == '__main__':
-    # This block simulates your `all_loaded_data` structure for a runnable example.
-    # In your actual code, you would call `load_datasets()` here.
     all_loaded_data = data_loader.load_datasets()
 
     final_results = run_evaluation(all_loaded_data)
