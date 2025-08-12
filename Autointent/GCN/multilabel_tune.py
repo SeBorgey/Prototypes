@@ -99,12 +99,9 @@ def prepare_data_for_trial(config, data_splits, all_labels):
                 label_row[label_to_id[label]] = 1
             multi_hot_labels_list.append(label_row)
         
-        # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ:
-        # torch.stack правильно собирает список 1D-тензоров в одну 2D-матрицу
         multi_hot_labels = torch.stack(multi_hot_labels_list)
         return TensorDataset(embeddings, multi_hot_labels), multi_hot_labels
     
-    # Теперь мы сразу получаем правильно сформированный тензор
     train_dataset, full_train_labels = process_split('train')
     val_dataset, _ = process_split('dev')
     test_dataset, _ = process_split('test')
