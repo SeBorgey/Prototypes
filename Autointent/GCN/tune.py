@@ -9,13 +9,11 @@ BASE_CONFIG = {
     "dataset_name": "DeepPavlov/events",
     "cache_dir": "./.cache",
     "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "max_epochs": 100,
+    "patience": 10,
 }
 
 EMBEDDING_MODELS = {
-    "Qwen/Qwen3-Embedding-0.6B": {
-        "max_dim": 1024,
-        "label_dim": 512
-    },
     "NovaSearch/stella_en_400M_v5": {
         "max_dim": 1024,
         "label_dim": 512
@@ -91,9 +89,8 @@ def objective(trial):
     config['embedding_model_name'] = model_name
     config['sentence_embedding_dim'] = model_info['max_dim']
     config['label_embedding_dim'] = model_info['label_dim']
-
-    config['epochs'] = trial.suggest_int('epochs', 10, 100, log=True)
-    config['learning_rate'] = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
+    
+    config['learning_rate'] = trial.suggest_float('learning_rate', 1e-3, 1e-2, log=True)
     config['batch_size'] = trial.suggest_categorical('batch_size', [16, 32, 64])
     
     config['p_reweight'] = trial.suggest_float('p_reweight', 0.0, 0.9, step=0.1)
@@ -114,12 +111,12 @@ def main():
     ensure_all_embeddings_cached(BASE_CONFIG, EMBEDDING_MODELS)
     
     study = optuna.create_study(
-        study_name="mlgcn_multimodel_embedding_v1",
+        study_name="mlgcn_early_stopping_v1",
         directions=['maximize', 'maximize']
     )
     
     try:
-        study.optimize(objective, n_trials=400, timeout=20800)
+        study.optimize(objective, n_trials=50, timeout=20800)
     except KeyboardInterrupt:
         pass
 
@@ -135,6 +132,7 @@ def main():
         print(f"  Hyperparameters:")
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
+
     fig1 = optuna.visualization.plot_param_importances(study, target_name="mAP", target=lambda t: t.values[0])
     fig1.update_layout(title="Hyperparameter Importances for mAP")
     fig1.show()

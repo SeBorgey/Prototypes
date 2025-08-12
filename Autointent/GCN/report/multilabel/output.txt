@@ -1,0 +1,85 @@
+--- Optuna Tuning Report for: NLUPP_ENGLISH ---
+Number of finished trials: 50
+
+Best trials (Pareto front):
+
+--- Pareto Trial #1 ---
+  Trial Number: 33
+  Metrics: mAP=0.8863, OF1=0.8807
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    learning_rate: 0.007685391201009037
+    batch_size: 32
+    p_reweight: 0.1
+    tau_threshold: 0.1
+    gcn_architecture: 1_layer_1024
+
+--- Pareto Trial #2 ---
+  Trial Number: 8
+  Metrics: mAP=0.8847, OF1=0.8815
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    learning_rate: 0.003786026334962811
+    batch_size: 16
+    p_reweight: 0.1
+    tau_threshold: 0.5
+    gcn_architecture: 1_layer_1024
+
+--- Optuna Tuning Report for: BANKING77 ---
+Number of finished trials: 50
+
+Best trials (Pareto front):
+
+--- Pareto Trial #1 ---
+  Trial Number: 31
+  Metrics: mAP=0.8607, OF1=0.7968
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    learning_rate: 0.0013050635619422217
+    batch_size: 32
+    p_reweight: 0.5
+    tau_threshold: 0.7000000000000001
+    gcn_architecture: 1_layer_1024
+
+--- Optuna Tuning Report for: CLINC150 ---
+Number of finished trials: 50
+
+Best trials (Pareto front):
+
+--- Pareto Trial #1 ---
+  Trial Number: 9
+  Metrics: mAP=0.9179, OF1=0.8640
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    learning_rate: 0.0022725639173274744
+    batch_size: 16
+    p_reweight: 0.2
+    tau_threshold: 0.5
+    gcn_architecture: 1_layer_1024
+
+--- Optuna Tuning Report for: DeepPavlov/events ---
+
+Best trials (Pareto front):
+Number of finished trials: 50
+
+--- Pareto Trial #1 ---
+  Trial Number: 48
+  Metrics: mAP=0.5469, OF1=0.5735
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    learning_rate: 0.005665176778598967
+    batch_size: 64
+    p_reweight: 0.0
+    tau_threshold: 0.5
+    gcn_architecture: 1_layer_1024
+
+--- Pareto Trial #2 ---
+  Trial Number: 41
+  Metrics: mAP=0.5454, OF1=0.6126
+  Hyperparameters:
+    embedding_model_name: NovaSearch/stella_en_400M_v5
+    learning_rate: 0.0017875265710438088
+    batch_size: 16
+    p_reweight: 0.1
+    tau_threshold: 0.7000000000000001
+    gcn_architecture: 1_layer_1024
