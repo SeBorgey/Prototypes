@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, random_split
 import numpy as np
 from datasets import load_dataset
 from sklearn.metrics import average_precision_score, f1_score
 import os
+import copy
 
 from mlgcn_model import TextMLGCN
 
@@ -21,24 +22,31 @@ def prepare_data(config):
     test_path = get_cache_path(config, "test", config["sentence_embedding_dim"])
     labels_path = get_cache_path(config, "labels", config["label_embedding_dim"])
 
-    train_embeddings = torch.load(train_path, weights_only=True)
-    test_embeddings = torch.load(test_path, weights_only=True)
-    label_embeddings = torch.load(labels_path, weights_only=True)
+    train_embeddings = torch.load(train_path)
+    test_embeddings = torch.load(test_path)
+    label_embeddings = torch.load(labels_path)
 
-    train_labels = torch.tensor([item['label'] for item in dataset['train']], dtype=torch.float)
+    full_train_labels = torch.tensor([item['label'] for item in dataset['train']], dtype=torch.float)
     test_labels = torch.tensor([item['label'] for item in dataset['test']], dtype=torch.float)
     
-    train_dataset = TensorDataset(train_embeddings, train_labels)
+    full_train_dataset = TensorDataset(train_embeddings, full_train_labels)
     test_dataset = TensorDataset(test_embeddings, test_labels)
     
-    return train_dataset, test_dataset, train_labels, num_classes, label_embeddings
+    val_size = int(len(full_train_dataset) * 0.1)
+    train_size = len(full_train_dataset) - val_size
+    
+    generator = torch.Generator().manual_seed(42)
+    train_subset, val_subset = random_split(full_train_dataset, [train_size, val_size], generator)
+    
+    return train_subset, val_subset, test_dataset, full_train_labels, num_classes, label_embeddings
 
 def run_trial(config):
     device = torch.device(config["device"])
-    train_dataset, test_dataset, train_labels, num_classes, label_embeds = prepare_data(config)
+    train_ds, val_ds, test_ds, full_train_labels, num_classes, label_embeds = prepare_data(config)
     
-    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=config["batch_size"])
+    train_loader = DataLoader(train_ds, batch_size=config["batch_size"], shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=config["batch_size"])
+    test_loader = DataLoader(test_ds, batch_size=config["batch_size"])
     
     model = TextMLGCN(
         num_classes=num_classes,
@@ -49,13 +57,17 @@ def run_trial(config):
         tau_threshold=config["tau_threshold"]
     ).to(device)
     
-    model.set_correlation_matrix(train_labels.to(device))
+    model.set_correlation_matrix(full_train_labels.to(device))
     label_embeddings = label_embeds.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"])
     loss_function = nn.BCEWithLogitsLoss()
     
-    for _ in range(config["epochs"]):
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_state = None
+
+    for _ in range(config["max_epochs"]):
         model.train()
         for features, labels in train_loader:
             features, labels = features.to(device), labels.to(device)
@@ -64,7 +76,27 @@ def run_trial(config):
             loss = loss_function(logits, labels)
             loss.backward()
             optimizer.step()
+        
+        model.eval()
+        current_val_loss = 0
+        with torch.no_grad():
+            for features, labels in val_loader:
+                features, labels = features.to(device), labels.to(device)
+                logits = model(features, label_embeddings)
+                current_val_loss += loss_function(logits, labels).item()
+        
+        avg_val_loss = current_val_loss / len(val_loader)
+        
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            patience_counter = 0
+            best_model_state = copy.deepcopy(model.state_dict())
+        else:
+            patience_counter += 1
+            if patience_counter >= config["patience"]:
+                break
     
+    model.load_state_dict(best_model_state)
     model.eval()
     all_scores, all_true = [], []
     with torch.no_grad():

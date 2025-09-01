@@ -1,0 +1,20 @@
+[project]
+name = "prototypes"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Sergey Malyshev",email = "malyshev.sa@phystech.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<4.0"
+dependencies = [
+    "autointent @ file:///home/kaneki/Documents/DeepPavlov/AutoIntent"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+autointent = {develop = true}
