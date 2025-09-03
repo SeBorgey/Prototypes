@@ -8,10 +8,9 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from datasets import load_dataset as hf_load_dataset
 
 from hiclass import LocalClassifierPerNode, LocalClassifierPerParentNode, LocalClassifierPerLevel
-from autointent import Embedder, Dataset
+from autointent import Embedder
 from autointent.configs import EmbedderConfig
 from autointent.modules.scoring import LinearScorer
-from autointent.modules.decision import ArgmaxDecision
 
 # --- 1. Настройка моделей и констант ---
 
@@ -67,11 +66,9 @@ def load_mock_data():
 #     """Загружает датасет DBPedia. Требует наличия файла DBPedia.csv."""
 #     df = pd.read_csv("DBPedia.csv", encoding='utf-8')
 #     X = df['text'].astype(str).values
-#     # Убираем пропуски и создаем иерархию
 #     y_df = df[['l1', 'l2', 'l3']].copy()
 #     y_df.fillna('', inplace=True)
 #     y_raw = y_df.values.tolist()
-#     # Удаляем пустые строки в конце путей
 #     y = [[item for item in sublist if item] for sublist in y_raw]
 #     return X, np.array(y, dtype=object)
 #
@@ -95,14 +92,10 @@ def get_embeddings(texts: np.ndarray, config: EmbedderConfig) -> np.ndarray:
 
 def calculate_hierarchical_metrics(y_true, y_pred):
     """Рассчитывает метрики на основе полного совпадения иерархического пути."""
-    y_true_sets = [set(path) for path in y_true]
-    y_pred_sets = [set(path) for path in y_pred]
-    
-    true_positives = sum(1 for true_set, pred_set in zip(y_true_sets, y_pred_sets) if true_set == pred_set)
-    
-    # В случае полного совпадения Precision и Recall будут одинаковы
-    # hP = TP / |Predicted|, hR = TP / |True|
-    # Так как мы требуем полного совпадения, |Predicted| = |True| для корректных, а для некорректных это FP/FN
+    y_true_tuples = [tuple(path) for path in y_true]
+    y_pred_tuples = [tuple(path) for path in y_pred]
+
+    true_positives = sum(1 for true_path, pred_path in zip(y_true_tuples, y_pred_tuples) if true_path == pred_path)
     
     num_predicted = len(y_pred)
     num_true = len(y_true)
@@ -121,7 +114,6 @@ def calculate_hierarchical_metrics(y_true, y_pred):
         "f1": f1_val,
     }
 
-
 # --- 4. Функции для оценки моделей ---
 
 def evaluate_hiclass_models(X_train_emb, y_train, X_test_emb, y_test):
@@ -137,15 +129,17 @@ def evaluate_hiclass_models(X_train_emb, y_train, X_test_emb, y_test):
 
 def evaluate_autointent_multiclass(X_train, y_train, X_test, y_test, embedder_config):
     """Оценивает AutoIntent в режиме мультиклассовой классификации по последнему уровню."""
-    leaf_to_path = {path[-1]: path for path in y_train}
-    y_train_flat = [path[-1] for path in y_train]
+    y_train_list = [list(path) for path in y_train]
+    leaf_to_path = {path[-1]: path for path in y_train_list if path}
+    y_train_flat = [path[-1] for path in y_train_list if path]
+    
+    X_train_filtered = [x for x, path in zip(X_train, y_train_list) if path]
 
-    scorer = LinearScorer(embedder_config=embedder_config)
-    scorer.fit(X_train, y_train_flat)
+    scorer = LinearScorer(embedder_config=embedder_config, cv=2)
+    scorer.fit(X_train_filtered, y_train_flat)
     
     scores = scorer.predict(X_test)
     
-    # Классы могут отличаться от fit, нужно маппить по индексам
     le = scorer._clf.classes_
     y_pred_flat_indices = np.argmax(scores, axis=1)
     y_pred_flat = le[y_pred_flat_indices]
@@ -169,7 +163,9 @@ def evaluate_autointent_multilabel(X_train, y_train, X_test, y_test, embedder_co
     
     y_pred_paths = mlb.inverse_transform(y_pred_mlb)
     
-    metrics = calculate_hierarchical_metrics(y_test, y_pred_paths)
+    y_pred_paths_list = [list(path) for path in y_pred_paths]
+    
+    metrics = calculate_hierarchical_metrics(y_test, y_pred_paths_list)
     metrics["model"] = "AutoIntent (LogReg Multilabel)"
     return metrics
 
@@ -219,8 +215,12 @@ def main():
         print(f"--- Processing dataset: {name} ---")
         X, y = loader()
         
+        # ИСПРАВЛЕНИЕ: Преобразуем y в список для безопасной работы
+        y_list = [list(path) for path in y]
+        y_first_level = [path[0] for path in y_list if len(path) > 0]
+        
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.3, random_state=42, stratify=[labels[0] for labels in y]
+            X, y, test_size=0.3, random_state=42, stratify=y_first_level
         )
         
         print("Получение эмбеддингов для обучающей выборки...")
@@ -236,13 +236,13 @@ def main():
 
         # Оценка autointent (Multiclass)
         print("Оценка AutoIntent (Multiclass)...")
-        autointent_mc_results = evaluate_autointent_multiclass(X_train, y_train, X_test, y_test, EMBEDDER_CONFIG)
+        autointent_mc_results = evaluate_autointent_multiclass(X_train.tolist(), y_train, X_test.tolist(), y_test, EMBEDDER_CONFIG)
         autointent_mc_results['dataset'] = name
         all_results.append(autointent_mc_results)
 
         # Оценка autointent (Multilabel)
         print("Оценка AutoIntent (Multilabel)...")
-        autointent_ml_results = evaluate_autointent_multilabel(X_train, y_train, X_test, y_test, EMBEDDER_CONFIG)
+        autointent_ml_results = evaluate_autointent_multilabel(X_train.tolist(), y_train, X_test.tolist(), y_test, EMBEDDER_CONFIG)
         autointent_ml_results['dataset'] = name
         all_results.append(autointent_ml_results)
     
