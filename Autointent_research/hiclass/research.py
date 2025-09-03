@@ -58,9 +58,11 @@ def load_mock_data():
 #
 def load_wos_data():
     """Загружает датасет Web of Science из Hugging Face."""
+    # Используем только один из под-датасетов, например 'wos_46985', чтобы избежать дублирования
     dataset = hf_load_dataset("marcelsun/wos_hierarchical_multi_label_text_classification")
     data = pd.DataFrame(dataset['train'])
-    X = data['text'].values
+    # ИСПРАВЛЕНИЕ: колонка с текстом называется 'X'
+    X = data['X'].values 
     y = np.array([path.split('~') for path in data['y_true']], dtype=object)
     return X, y
 
@@ -230,9 +232,9 @@ def main():
     
     datasets_to_run = {
         # "Mock Dataset": load_mock_data,
-        "Web of Science": load_wos_data,
-        "DBPedia": load_dbpedia_data,
-        "Wiki Subjects": load_wiki_subjects_data,
+        # "Web of Science": load_wos_data,
+        # "DBPedia": load_dbpedia_data,
+        # "Wiki Subjects": load_wiki_subjects_data,
     }
     
     all_results = []
