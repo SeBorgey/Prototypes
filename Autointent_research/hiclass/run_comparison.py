@@ -16,10 +16,8 @@ from hiclass import (
     LocalClassifierPerParentNode,
 )
 
-# --- Конфигурация ---
 DATASET_DIRS = ["unified_datasets/custom_intents"] 
 EMBEDDER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-# --- Конец конфигурации ---
 
 
 def load_raw_data(dataset_path: str) -> Tuple[List[Dict], List[Dict]]:
