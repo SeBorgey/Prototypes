@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,8 @@ from hiclass import (
     LocalClassifierPerParentNode,
 )
 
-DATASET_DIRS = ["unified_datasets/custom_intents","unified_datasets/dbpedia_classes", "unified_datasets/wiki_academic_subjects"] 
+# --- Конфигурация ---
+DATASET_DIRS = ["unified_datasets/wiki_academic_subjects"] 
 EMBEDDER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # --- Конец конфигурации ---
 
@@ -56,26 +58,30 @@ def preprocess_for_hiclass(
 def preprocess_for_autointent_multiclass(
     train_raw: List[Dict], test_raw: List[Dict]
 ) -> Tuple[List[Dict], List[Dict], Dict[str, Any]]:
-    # 1. Находим уникальные классы в каждой выборке
-    train_leaf_labels = set(item["labels"][0][-1] for item in train_raw)
-    test_leaf_labels = set(item["labels"][0][-1] for item in test_raw)
+    train_samples_raw = [
+        {"utterance": item["text"], "label": item["labels"][0][-1]} for item in train_raw
+    ]
+    test_samples_raw = [
+        {"utterance": item["text"], "label": item["labels"][0][-1]} for item in test_raw
+    ]
 
-    # 2. Находим пересечение (общие классы)
-    common_labels = sorted(list(train_leaf_labels.intersection(test_leaf_labels)))
-    label_to_id = {label: i for i, label in enumerate(common_labels)}
+    train_label_counts = Counter(s["label"] for s in train_samples_raw)
+    train_labels_sufficient = {label for label, count in train_label_counts.items() if count >= 2}
 
-    # 3. Фильтруем обе выборки, оставляя только сэмплы с общими классами
+    test_labels_present = set(s["label"] for s in test_samples_raw)
+
+    final_common_labels = sorted(list(train_labels_sufficient.intersection(test_labels_present)))
+    label_to_id = {label: i for i, label in enumerate(final_common_labels)}
+
     train_samples = []
-    for item in train_raw:
-        label = item["labels"][0][-1]
-        if label in label_to_id:
-            train_samples.append({"utterance": item["text"], "label": label_to_id[label]})
+    for sample in train_samples_raw:
+        if sample["label"] in label_to_id:
+            train_samples.append({"utterance": sample["utterance"], "label": label_to_id[sample["label"]]})
 
     test_samples = []
-    for item in test_raw:
-        label = item["labels"][0][-1]
-        if label in label_to_id:
-            test_samples.append({"utterance": item["text"], "label": label_to_id[label]})
+    for sample in test_samples_raw:
+        if sample["label"] in label_to_id:
+            test_samples.append({"utterance": sample["utterance"], "label": label_to_id[sample["label"]]})
 
     intents = [{"id": i, "name": name} for name, i in label_to_id.items()]
     return train_samples, test_samples, {"intents": intents}
@@ -84,9 +90,17 @@ def preprocess_for_autointent_multiclass(
 def preprocess_for_autointent_multilabel(
     train_raw: List[Dict], test_raw: List[Dict]
 ) -> Tuple[List[Dict], List[Dict], Dict[str, Any]]:
-    train_labels_sets = [set(item["labels"][0]) for item in train_raw]
+    # 1. Считаем частоту каждой метки в обучающей выборке
+    all_train_labels = [label for item in train_raw for label in item["labels"][0]]
+    label_counts = Counter(all_train_labels)
     
-    mlb = MultiLabelBinarizer()
+    # 2. Оставляем только те метки, которые встречаются 2 или более раз
+    labels_to_keep = sorted([label for label, count in label_counts.items() if count >= 2])
+    
+    # 3. Инициализируем MultiLabelBinarizer только с "надежными" классами
+    mlb = MultiLabelBinarizer(classes=labels_to_keep)
+    
+    train_labels_sets = [set(item["labels"][0]) for item in train_raw]
     y_train_binarized = mlb.fit_transform(train_labels_sets)
     
     train_samples = [
@@ -97,8 +111,8 @@ def preprocess_for_autointent_multilabel(
     test_samples = []
     for item in test_raw:
         label_set = set(item["labels"][0])
-        known_labels = [lbl for lbl in label_set if lbl in mlb.classes_]
-        binarized_label = mlb.transform([known_labels])[0].tolist() if known_labels else [0] * len(mlb.classes_)
+        # mlb.transform автоматически проигнорирует классы, которых нет в mlb.classes_
+        binarized_label = mlb.transform([label_set])[0].tolist()
         test_samples.append({"utterance": item["text"], "label": binarized_label})
     
     intents = [{"id": i, "name": name} for i, name in enumerate(mlb.classes_)]
@@ -120,12 +134,16 @@ def calculate_hiclass_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return correct_predictions / len(y_true)
 
 
-def calculate_autointent_multilabel_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def calculate_autointent_multilabel_accuracy(y_true: np.ndarray, y_pred: List) -> float:
     if y_true.shape[0] == 0:
         return 0.0
     num_classes = y_true.shape[1]
     y_pred_processed = np.array([pred if pred is not None else [0] * num_classes for pred in y_pred])
     
+    if y_true.shape != y_pred_processed.shape:
+        print(f"Warning: Shape mismatch in multilabel accuracy calculation. y_true: {y_true.shape}, y_pred_processed: {y_pred_processed.shape}")
+        return 0.0
+        
     correct_rows = np.all(y_true == y_pred_processed, axis=1)
     return np.mean(correct_rows)
 
@@ -143,6 +161,10 @@ def run_hiclass_experiment(
 def run_autointent_multiclass_experiment(
     train_samples, test_samples, metadata, embedder_config
 ) -> Dict:
+    if not train_samples or not test_samples:
+        print("Skipping multiclass experiment due to empty train or test samples after filtering.")
+        return {"accuracy": 0.0}
+    
     dataset = Dataset.from_dict(
         {"train": train_samples, "test": test_samples, "intents": metadata["intents"]}
     )
@@ -151,7 +173,6 @@ def run_autointent_multiclass_experiment(
         {
             "node_type": "scoring",
             "target_metric": "scoring_f1",
-            # ИСПРАВЛЕНИЕ: Увеличиваем max_iter
             "search_space": [{"module_name": "sklearn", "clf_name": ["LogisticRegression"], "max_iter": [500]}],
         },
         {
@@ -177,6 +198,10 @@ def run_autointent_multiclass_experiment(
 def run_autointent_multilabel_experiment(
     train_samples, test_samples, metadata, embedder_config
 ) -> Dict:
+    if not train_samples or not test_samples:
+        print("Skipping multilabel experiment due to empty train or test samples after filtering.")
+        return {"accuracy": 0.0}
+
     dataset = Dataset.from_dict(
         {"train": train_samples, "test": test_samples, "intents": metadata["intents"]}
     ).to_multilabel()
@@ -185,7 +210,6 @@ def run_autointent_multilabel_experiment(
         {
             "node_type": "scoring",
             "target_metric": "scoring_f1",
-            # ИСПРАВЛЕНИЕ: Увеличиваем max_iter
             "search_space": [{"module_name": "sklearn", "clf_name": ["LogisticRegression"], "max_iter": [500]}],
         },
         {
@@ -225,31 +249,30 @@ def main():
         x_train_embed = embedder.embed(x_train_text)
         x_test_embed = embedder.embed(x_test_text)
         
-        # ИСПРАВЛЕНИЕ: Увеличиваем max_iter
-        base_classifier = LogisticRegression(max_iter=500)
+        base_classifier = LogisticRegression(max_iter=500, n_jobs=-1)
 
-        hiclass_models = {
-            "LCPN": (
-                LocalClassifierPerNode,
-                {"local_classifier": base_classifier, "binary_policy": "siblings"},
-            ),
-            "LCPPN": (
-                LocalClassifierPerParentNode,
-                {"local_classifier": base_classifier},
-            ),
-            "LCPL": (
-                LocalClassifierPerLevel,
-                {"local_classifier": base_classifier},
-            ),
-        }
+        # hiclass_models = {
+        #     "LCPN": (
+        #         LocalClassifierPerNode,
+        #         {"local_classifier": base_classifier, "binary_policy": "siblings", "n_jobs": -1},
+        #     ),
+        #     "LCPPN": (
+        #         LocalClassifierPerParentNode,
+        #         {"local_classifier": base_classifier, "n_jobs": -1},
+        #     ),
+        #     "LCPL": (
+        #         LocalClassifierPerLevel,
+        #         {"local_classifier": base_classifier, "n_jobs": -1},
+        #     ),
+        # }
 
-        for name, (model_class, kwargs) in hiclass_models.items():
-            print(f"Running hiclass: {name}...")
-            metrics = run_hiclass_experiment(
-                model_class, x_train_embed, y_train_h, x_test_embed, y_test_h, **kwargs
-            )
-            results.append({"dataset": dataset_dir, "model": f"hiclass_{name}", **metrics})
-            print(f"Results for {name}: {metrics}")
+        # for name, (model_class, kwargs) in hiclass_models.items():
+        #     print(f"Running hiclass: {name}...")
+        #     metrics = run_hiclass_experiment(
+        #         model_class, x_train_embed, y_train_h, x_test_embed, y_test_h, **kwargs
+        #     )
+        #     results.append({"dataset": dataset_dir, "model": f"hiclass_{name}", **metrics})
+        #     print(f"Results for {name}: {metrics}")
 
         # 2. Autointent Multiclass experiment
         print("Running autointent: Multiclass LogReg...")
