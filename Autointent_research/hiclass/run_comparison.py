@@ -9,15 +9,16 @@ from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import MultiLabelBinarizer
 
 from autointent import Dataset, Embedder, Pipeline
-from autointent.configs import EmbedderConfig,DataConfig
+from autointent.configs import DataConfig, EmbedderConfig
 from hiclass import (
     LocalClassifierPerLevel,
     LocalClassifierPerNode,
     LocalClassifierPerParentNode,
 )
 
-DATASET_DIRS = ["unified_datasets/custom_intents"] 
+DATASET_DIRS = ["unified_datasets/custom_intents","unified_datasets/dbpedia_classes", "unified_datasets/wiki_academic_subjects"] 
 EMBEDDER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# --- Конец конфигурации ---
 
 
 def load_raw_data(dataset_path: str) -> Tuple[List[Dict], List[Dict]]:
@@ -55,20 +56,26 @@ def preprocess_for_hiclass(
 def preprocess_for_autointent_multiclass(
     train_raw: List[Dict], test_raw: List[Dict]
 ) -> Tuple[List[Dict], List[Dict], Dict[str, Any]]:
-    train_samples = [
-        {"utterance": item["text"], "label": item["labels"][0][-1]} for item in train_raw
-    ]
-    test_samples = [
-        {"utterance": item["text"], "label": item["labels"][0][-1]} for item in test_raw
-    ]
+    # 1. Находим уникальные классы в каждой выборке
+    train_leaf_labels = set(item["labels"][0][-1] for item in train_raw)
+    test_leaf_labels = set(item["labels"][0][-1] for item in test_raw)
 
-    all_leaf_labels = sorted(list(set(s["label"] for s in train_samples)))
-    label_to_id = {label: i for i, label in enumerate(all_leaf_labels)}
+    # 2. Находим пересечение (общие классы)
+    common_labels = sorted(list(train_leaf_labels.intersection(test_leaf_labels)))
+    label_to_id = {label: i for i, label in enumerate(common_labels)}
 
-    for sample in train_samples:
-        sample["label"] = label_to_id[sample["label"]]
-    for sample in test_samples:
-        sample["label"] = label_to_id.get(sample["label"], -1)
+    # 3. Фильтруем обе выборки, оставляя только сэмплы с общими классами
+    train_samples = []
+    for item in train_raw:
+        label = item["labels"][0][-1]
+        if label in label_to_id:
+            train_samples.append({"utterance": item["text"], "label": label_to_id[label]})
+
+    test_samples = []
+    for item in test_raw:
+        label = item["labels"][0][-1]
+        if label in label_to_id:
+            test_samples.append({"utterance": item["text"], "label": label_to_id[label]})
 
     intents = [{"id": i, "name": name} for name, i in label_to_id.items()]
     return train_samples, test_samples, {"intents": intents}
@@ -116,7 +123,10 @@ def calculate_hiclass_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def calculate_autointent_multilabel_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if y_true.shape[0] == 0:
         return 0.0
-    correct_rows = np.all(y_true == y_pred, axis=1)
+    num_classes = y_true.shape[1]
+    y_pred_processed = np.array([pred if pred is not None else [0] * num_classes for pred in y_pred])
+    
+    correct_rows = np.all(y_true == y_pred_processed, axis=1)
     return np.mean(correct_rows)
 
 
@@ -141,7 +151,8 @@ def run_autointent_multiclass_experiment(
         {
             "node_type": "scoring",
             "target_metric": "scoring_f1",
-            "search_space": [{"module_name": "sklearn", "clf_name": ["LogisticRegression"]}],
+            # ИСПРАВЛЕНИЕ: Увеличиваем max_iter
+            "search_space": [{"module_name": "sklearn", "clf_name": ["LogisticRegression"], "max_iter": [500]}],
         },
         {
             "node_type": "decision",
@@ -159,13 +170,7 @@ def run_autointent_multiclass_experiment(
     y_pred = pipeline.predict(test_utterances)
     y_true = [s["label"] for s in test_samples]
 
-    y_true_filtered, y_pred_filtered = [], []
-    for true, pred in zip(y_true, y_pred):
-        if true != -1:
-            y_true_filtered.append(true)
-            y_pred_filtered.append(pred)
-
-    accuracy = accuracy_score(y_true_filtered, y_pred_filtered)
+    accuracy = accuracy_score(y_true, y_pred)
     return {"accuracy": accuracy}
 
 
@@ -180,7 +185,8 @@ def run_autointent_multilabel_experiment(
         {
             "node_type": "scoring",
             "target_metric": "scoring_f1",
-            "search_space": [{"module_name": "sklearn", "clf_name": ["LogisticRegression"]}],
+            # ИСПРАВЛЕНИЕ: Увеличиваем max_iter
+            "search_space": [{"module_name": "sklearn", "clf_name": ["LogisticRegression"], "max_iter": [500]}],
         },
         {
             "node_type": "decision",
@@ -195,7 +201,7 @@ def run_autointent_multilabel_experiment(
     pipeline.fit(dataset)
 
     test_utterances = [s["utterance"] for s in test_samples]
-    y_pred = np.array(pipeline.predict(test_utterances))
+    y_pred = pipeline.predict(test_utterances)
     y_true = np.array([s["label"] for s in test_samples])
     
     accuracy = calculate_autointent_multilabel_accuracy(y_true, y_pred)
@@ -219,7 +225,8 @@ def main():
         x_train_embed = embedder.embed(x_train_text)
         x_test_embed = embedder.embed(x_test_text)
         
-        base_classifier = LogisticRegression()
+        # ИСПРАВЛЕНИЕ: Увеличиваем max_iter
+        base_classifier = LogisticRegression(max_iter=500)
 
         hiclass_models = {
             "LCPN": (
@@ -256,6 +263,7 @@ def main():
             {"dataset": dataset_dir, "model": "autointent_multiclass_logreg", **metrics_mc}
         )
         print(f"Results for Autointent Multiclass LogReg: {metrics_mc}")
+
 
         # 3. Autointent Multilabel experiment
         print("Running autointent: Multilabel LogReg...")
