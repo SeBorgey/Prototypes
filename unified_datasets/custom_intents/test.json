@@ -1,0 +1,82 @@
+[
+  {
+    "text": "Какова итоговая цена?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "CheckPrice"
+      ]
+    ]
+  },
+  {
+    "text": "Есть ли у него водонепроницаемость?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "GetFeatures"
+      ]
+    ]
+  },
+  {
+    "text": "Какой у вас адрес электронной почты?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "FindContact"
+      ]
+    ]
+  },
+  {
+    "text": "Какова стоимость доставки?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "CheckShipping"
+      ]
+    ]
+  },
+  {
+    "text": "Как поменять фамилию в аккаунте?",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "UpdateProfile"
+      ]
+    ]
+  },
+  {
+    "text": "Не могу войти, нужен новый пароль.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "ResetPassword"
+      ]
+    ]
+  },
+  {
+    "text": "Я хочу купить это.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "AddToCart"
+      ]
+    ]
+  },
+  {
+    "text": "Когда прибудет моя посылка?",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "CheckOrderStatus"
+      ]
+    ]
+  }
+]
