@@ -178,5 +178,565 @@
         "CheckOrderStatus"
       ]
     ]
+  },
+  {
+    "text": "Подскажите, пожалуйста, прайс на эту услугу.",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "CheckPrice"
+      ]
+    ]
+  },
+  {
+    "text": "Сколько это будет стоить?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "CheckPrice"
+      ]
+    ]
+  },
+  {
+    "text": "Меня интересует цена на модель с 256 ГБ памяти.",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "CheckPrice"
+      ]
+    ]
+  },
+  {
+    "text": "Почем кроссовки?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "CheckPrice"
+      ]
+    ]
+  },
+  {
+    "text": "А есть скидка на этот телевизор?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "CheckPrice"
+      ]
+    ]
+  },
+  {
+    "text": "Какой процессор у этого смартфона?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "GetFeatures"
+      ]
+    ]
+  },
+  {
+    "text": "Поддерживает ли он беспроводную зарядку?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "GetFeatures"
+      ]
+    ]
+  },
+  {
+    "text": "Из какого материала сделана сумка?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "GetFeatures"
+      ]
+    ]
+  },
+  {
+    "text": "Можно получить полную спецификацию?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "GetFeatures"
+      ]
+    ]
+  },
+  {
+    "text": "Чем эта версия отличается от предыдущей?",
+    "labels": [
+      [
+        "Information",
+        "ProductInquiry",
+        "GetFeatures"
+      ]
+    ]
+  },
+  {
+    "text": "Как позвонить в отдел продаж?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "FindContact"
+      ]
+    ]
+  },
+  {
+    "text": "Где находится ваш главный офис?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "FindContact"
+      ]
+    ]
+  },
+  {
+    "text": "У вас есть страница в телеграме?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "FindContact"
+      ]
+    ]
+  },
+  {
+    "text": "Предоставьте, пожалуйста, ваши контактные данные.",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "FindContact"
+      ]
+    ]
+  },
+  {
+    "text": "С кем я могу поговорить по поводу возврата?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "FindContact"
+      ]
+    ]
+  },
+  {
+    "text": "Вы отправляете товары за границу?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "CheckShipping"
+      ]
+    ]
+  },
+  {
+    "text": "Есть ли у вас экспресс-доставка?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "CheckShipping"
+      ]
+    ]
+  },
+  {
+    "text": "Какой транспортной компанией вы пользуетесь?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "CheckShipping"
+      ]
+    ]
+  },
+  {
+    "text": "Доставка платная или бесплатная?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "CheckShipping"
+      ]
+    ]
+  },
+  {
+    "text": "В какие сроки обычно приходит заказ?",
+    "labels": [
+      [
+        "Information",
+        "CompanyInquiry",
+        "CheckShipping"
+      ]
+    ]
+  },
+  {
+    "text": "Моя фамилия изменилась, где это исправить?",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "UpdateProfile"
+      ]
+    ]
+  },
+  {
+    "text": "Хочу привязать новый email к аккаунту.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "UpdateProfile"
+      ]
+    ]
+  },
+  {
+    "text": "Как добавить другую банковскую карту?",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "UpdateProfile"
+      ]
+    ]
+  },
+  {
+    "text": "Откройте страницу редактирования профиля.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "UpdateProfile"
+      ]
+    ]
+  },
+  {
+    "text": "Можно ли удалить старый адрес доставки?",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "UpdateProfile"
+      ]
+    ]
+  },
+  {
+    "text": "Не помню пароль.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "ResetPassword"
+      ]
+    ]
+  },
+  {
+    "text": "Пришлите ссылку для восстановления доступа.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "ResetPassword"
+      ]
+    ]
+  },
+  {
+    "text": "Система пишет, что пароль неверный.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "ResetPassword"
+      ]
+    ]
+  },
+  {
+    "text": "Мне кажется, мой аккаунт взломали, нужно сменить пароль.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "ResetPassword"
+      ]
+    ]
+  },
+  {
+    "text": "Пожалуйста, помогите восстановить пароль.",
+    "labels": [
+      [
+        "Action",
+        "AccountManagement",
+        "ResetPassword"
+      ]
+    ]
+  },
+  {
+    "text": "В корзину.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "AddToCart"
+      ]
+    ]
+  },
+  {
+    "text": "Будьте добры, добавьте это для меня.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "AddToCart"
+      ]
+    ]
+  },
+  {
+    "text": "Хочу две штуки этого.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "AddToCart"
+      ]
+    ]
+  },
+  {
+    "text": "Да, я беру это, добавляйте.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "AddToCart"
+      ]
+    ]
+  },
+  {
+    "text": "Закинь в тележку.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "AddToCart"
+      ]
+    ]
+  },
+  {
+    "text": "Мой заказ уже отправили?",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "CheckOrderStatus"
+      ]
+    ]
+  },
+  {
+    "text": "Дайте трек-номер для отслеживания.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "CheckOrderStatus"
+      ]
+    ]
+  },
+  {
+    "text": "Что там с моей последней покупкой?",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "CheckOrderStatus"
+      ]
+    ]
+  },
+  {
+    "text": "Покажи историю моих заказов.",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "CheckOrderStatus"
+      ]
+    ]
+  },
+  {
+    "text": "Заказ задерживается, в чем дело?",
+    "labels": [
+      [
+        "Action",
+        "Purchase",
+        "CheckOrderStatus"
+      ]
+    ]
+  },
+    {
+    "text": "Во сколько мне обойдется эта конфигурация?",
+    "labels": [["Information", "ProductInquiry", "CheckPrice"]]
+  },
+  {
+    "text": "Озвучьте цену.",
+    "labels": [["Information", "ProductInquiry", "CheckPrice"]]
+  },
+  {
+    "text": "Есть ли варианты подешевле?",
+    "labels": [["Information", "ProductInquiry", "CheckPrice"]]
+  },
+  {
+    "text": "Полная стоимость с доставкой какая?",
+    "labels": [["Information", "ProductInquiry", "CheckPrice"]]
+  },
+  {
+    "text": "Акции на этот товар есть?",
+    "labels": [["Information", "ProductInquiry", "CheckPrice"]]
+  },
+  {
+    "text": "Какое время автономной работы?",
+    "labels": [["Information", "ProductInquiry", "GetFeatures"]]
+  },
+  {
+    "text": "Экран матовый или глянцевый?",
+    "labels": [["Information", "ProductInquiry", "GetFeatures"]]
+  },
+  {
+    "text": "Расскажите о комплектации.",
+    "labels": [["Information", "ProductInquiry", "GetFeatures"]]
+  },
+  {
+    "text": "Какие порты есть у устройства?",
+    "labels": [["Information", "ProductInquiry", "GetFeatures"]]
+  },
+  {
+    "text": "Какая гарантия на этот продукт?",
+    "labels": [["Information", "ProductInquiry", "GetFeatures"]]
+  },
+  {
+    "text": "Дайте контакты вашего PR-отдела.",
+    "labels": [["Information", "CompanyInquiry", "FindContact"]]
+  },
+  {
+    "text": "Как написать в службу поддержки?",
+    "labels": [["Information", "CompanyInquiry", "FindContact"]]
+  },
+  {
+    "text": "Есть ли у вас чат с оператором?",
+    "labels": [["Information", "CompanyInquiry", "FindContact"]]
+  },
+  {
+    "text": "Можно ли приехать к вам в офис?",
+    "labels": [["Information", "CompanyInquiry", "FindContact"]]
+  },
+  {
+    "text": "Куда отправлять коммерческое предложение?",
+    "labels": [["Information", "CompanyInquiry", "FindContact"]]
+  },
+  {
+    "text": "Можно ли забрать заказ самовывозом?",
+    "labels": [["Information", "CompanyInquiry", "CheckShipping"]]
+  },
+  {
+    "text": "Вы работаете с Почтой России?",
+    "labels": [["Information", "CompanyInquiry", "CheckShipping"]]
+  },
+  {
+    "text": "Если я закажу сегодня, когда товар приедет?",
+    "labels": [["Information", "CompanyInquiry", "CheckShipping"]]
+  },
+  {
+    "text": "Упаковка надежная? Товар хрупкий.",
+    "labels": [["Information", "CompanyInquiry", "CheckShipping"]]
+  },
+  {
+    "text": "Сколько стоит доставка до пункта выдачи?",
+    "labels": [["Information", "CompanyInquiry", "CheckShipping"]]
+  },
+  {
+    "text": "Загрузить новую аватарку.",
+    "labels": [["Action", "AccountManagement", "UpdateProfile"]]
+  },
+  {
+    "text": "Сменить платежные данные.",
+    "labels": [["Action", "AccountManagement", "UpdateProfile"]]
+  },
+  {
+    "text": "Укажите мой новый город: Санкт-Петербург.",
+    "labels": [["Action", "AccountManagement", "UpdateProfile"]]
+  },
+  {
+    "text": "Я хочу отписаться от email рассылки.",
+    "labels": [["Action", "AccountManagement", "UpdateProfile"]]
+  },
+  {
+    "text": "Мне нужно изменить информацию о себе.",
+    "labels": [["Action", "AccountManagement", "UpdateProfile"]]
+  },
+  {
+    "text": "Проблема со входом в личный кабинет.",
+    "labels": [["Action", "AccountManagement", "ResetPassword"]]
+  },
+  {
+    "text": "Восстановить доступ к аккаунту.",
+    "labels": [["Action", "AccountManagement", "ResetPassword"]]
+  },
+  {
+    "text": "Сгенерируйте мне временный пароль.",
+    "labels": [["Action", "AccountManagement", "ResetPassword"]]
+  },
+  {
+    "text": "Я ввожу пароль, но он не подходит.",
+    "labels": [["Action", "AccountManagement", "ResetPassword"]]
+  },
+  {
+    "text": "Как поменять пароль, если я не помню старый?",
+    "labels": [["Action", "AccountManagement", "ResetPassword"]]
+  },
+  {
+    "text": "Беру.",
+    "labels": [["Action", "Purchase", "AddToCart"]]
+  },
+  {
+    "text": "Оформить этот товар.",
+    "labels": [["Action", "Purchase", "AddToCart"]]
+  },
+  {
+    "text": "Положите в заказ.",
+    "labels": [["Action", "Purchase", "AddToCart"]]
+  },
+  {
+    "text": "Этот тоже добавьте.",
+    "labels": [["Action", "Purchase", "AddToCart"]]
+  },
+  {
+    "text": "Готов купить.",
+    "labels": [["Action", "Purchase", "AddToCart"]]
+  },
+  {
+    "text": "Почему мой заказ так долго не отправляют?",
+    "labels": [["Action", "Purchase", "CheckOrderStatus"]]
+  },
+  {
+    "text": "Сообщите, когда посылка будет в пункте выдачи.",
+    "labels": [["Action", "Purchase", "CheckOrderStatus"]]
+  },
+  {
+    "text": "Мой заказ отменен, в чем причина?",
+    "labels": [["Action", "Purchase", "CheckOrderStatus"]]
+  },
+  {
+    "text": "На каком этапе сборки мой заказ?",
+    "labels": [["Action", "Purchase", "CheckOrderStatus"]]
+  },
+  {
+    "text": "Покажите детали заказа номер 12345.",
+    "labels": [["Action", "Purchase", "CheckOrderStatus"]]
   }
 ]

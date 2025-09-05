@@ -25,25 +25,25 @@ LLM сгенерирован `custom_intents` маленький датасет 
 --- Processing dataset: unified_datasets/custom_intents ---
 Preparing data for hiclass...
 Running hiclass: LCPN...
-Results for LCPN: {'accuracy': 0.1590909090909091}
+Results for LCPN: {'accuracy': 0.5}
 Running hiclass: LCPPN...
-Results for LCPPN: {'accuracy': 0.1590909090909091}
+Results for LCPPN: {'accuracy': 0.5}
 Running hiclass: LCPL...
-Results for LCPL: {'accuracy': 0.17045454545454544}
+Results for LCPL: {'accuracy': 0.5}
 Running autointent: Multiclass LogReg...
-Filter: 100%|█████████████████████████████████████████████████████████████████████████████| 18/18 [00:00<00:00, 20965.70 examples/s]
+Filter: 100%|████████████████████████████████████████████████████| 98/98 [00:00<00:00, 87773.18 examples/s]
 Memory storage is not compatible with resuming optimization. Modules from previous runs won't be available. Set dump_modules=True in LoggingConfig to enable proper resuming.
 Storage directory must be provided for study persistence.
-[I 2025-09-05 13:25:23,410] A new study created in memory with name: NodeType.scoring
+[I 2025-09-05 16:12:57,503] A new study created in memory with name: NodeType.scoring
 Storage directory must be provided for study persistence.
 /home/kaneki/.cache/pypoetry/virtualenvs/prototypes-0Fl_Nofl-py3.11/lib/python3.11/site-packages/sklearn/metrics/_classification.py:1731: UndefinedMetricWarning: Precision is ill-defined and being set to 0.0 in labels with no predicted samples. Use `zero_division` parameter to control this behavior.
   _warn_prf(average, modifier, f"{metric.capitalize()} is", result.shape[0])
-Results for Autointent Multiclass LogReg: {'accuracy': 0.125}
+Results for Autointent Multiclass LogReg: {'accuracy': 0.75}
 Running autointent: Multilabel LogReg...
 Classes: total=14, train_present=14, test_present=14
-Map: 100%|███████████████████████████████████████████████████████████████████████████████████| 9/9 [00:00<00:00, 6739.64 examples/s]
-Map: 100%|███████████████████████████████████████████████████████████████████████████████████| 9/9 [00:00<00:00, 7419.17 examples/s]
-Map: 100%|████████████████████████████████████████████████████████████████████████████████| 88/88 [00:00<00:00, 32911.17 examples/s]
+Map: 100%|███████████████████████████████████████████████████████| 49/49 [00:00<00:00, 21068.26 examples/s]
+Map: 100%|███████████████████████████████████████████████████████| 49/49 [00:00<00:00, 22542.60 examples/s]
+Map: 100%|██████████████████████████████████████████████████████████| 8/8 [00:00<00:00, 5665.11 examples/s]
 Memory storage is not compatible with resuming optimization. Modules from previous runs won't be available. Set dump_modules=True in LoggingConfig to enable proper resuming.
 Storage directory must be provided for study persistence.
 Storage directory must be provided for study persistence.
@@ -109,11 +109,12 @@ Results for Autointent Multilabel LogReg: {'accuracy': np.float64(0.025625097064
 
 --- Final Comparison Results ---
                                     dataset                         model  accuracy
-0           unified_datasets/custom_intents                  hiclass_LCPN  0.159091
-1           unified_datasets/custom_intents                 hiclass_LCPPN  0.159091
-2           unified_datasets/custom_intents                  hiclass_LCPL  0.170455
-3           unified_datasets/custom_intents  autointent_multiclass_logreg  0.125000
-4           unified_datasets/custom_intents  autointent_multilabel_logreg  0.000000
+                           dataset                         model  accuracy
+0           unified_datasets/custom_intents                  hiclass_LCPN      0.50
+1           unified_datasets/custom_intents                 hiclass_LCPPN      0.50
+2           unified_datasets/custom_intents                  hiclass_LCPL      0.50
+3           unified_datasets/custom_intents  autointent_multiclass_logreg      0.75
+4           unified_datasets/custom_intents  autointent_multilabel_logreg      0.00
 5          unified_datasets/dbpedia_classes                  hiclass_LCPN  0.865299
 6          unified_datasets/dbpedia_classes                 hiclass_LCPPN  0.882291
 7          unified_datasets/dbpedia_classes                  hiclass_LCPL  0.880136
