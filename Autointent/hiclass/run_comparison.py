@@ -22,6 +22,9 @@ DATASET_DIRS = [
     "unified_datasets/wiki_academic_subjects",
 ]
 EMBEDDER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+MIN_TRAIN_FREQ = 2
+VAL_SIZE = 0.5
+RANDOM_STATE = 42
 
 
 def load_raw_data(dataset_path: str) -> Tuple[List[Dict], List[Dict]]:
@@ -58,16 +61,15 @@ def preprocess_for_hiclass(
 
 def calculate_hiclass_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if y_true.shape[0] == 0:
-        return 0.0
-    
+        raise ValueError(
+            "Cannot calculate metrics on empty ground truth data (y_true)."
+        )
     correct_predictions = 0
     for true_path, pred_path in zip(y_true, y_pred):
         clean_true = list(filter(None, true_path))
         clean_pred = list(filter(None, pred_path))
-        
         if clean_true == clean_pred:
             correct_predictions += 1
-            
     return correct_predictions / len(y_true)
 
 
@@ -81,51 +83,68 @@ def run_hiclass_experiment(
     return {"accuracy": accuracy}
 
 
-def preprocess_for_autointent_multiclass(
-    train_raw: List[Dict], test_raw: List[Dict]
-) -> Tuple[List[Dict], List[Dict], Dict[str, Any]]:
-    train_samples_raw = [
-        {"utterance": item["text"], "label": item["labels"][0][-1]}
-        for item in train_raw
-    ]
-    test_samples_raw = [
-        {"utterance": item["text"], "label": item["labels"][0][-1]} for item in test_raw
-    ]
+def _leaf(sample: Dict) -> str:
+    return sample["labels"][0][-1]
 
-    train_label_counts = Counter(s["label"] for s in train_samples_raw)
-    train_labels_sufficient = {
-        label for label, count in train_label_counts.items() if count >= 2
+
+def filter_by_common_leaves(
+    train_raw: List[Dict],
+    test_raw: List[Dict],
+    min_train_freq: int = 2,
+) -> Tuple[List[Dict], List[Dict], List[str], Dict[str, int]]:
+    # Листовые метки в train
+    train_leaf_counts = Counter(_leaf(s) for s in train_raw)
+    train_leaves_sufficient = {
+        lbl for lbl, cnt in train_leaf_counts.items() if cnt >= min_train_freq
     }
-
-    test_labels_present = set(s["label"] for s in test_samples_raw)
-
-    final_common_labels = sorted(
-        list(train_labels_sufficient.intersection(test_labels_present))
+    # Листовые метки в test
+    test_leaves = {_leaf(s) for s in test_raw}
+    # Итоговые листья: есть в test и достаточно частотны в train
+    final_common_leaves = sorted(
+        list(train_leaves_sufficient.intersection(test_leaves))
     )
-    label_to_id = {label: i for i, label in enumerate(final_common_labels)}
+    if not final_common_leaves:
+        print(
+            "[WARN] After leaf filtering no common leaves remain. Check data/min_train_freq."
+        )
+    leaf_to_id = {leaf: i for i, leaf in enumerate(final_common_leaves)}
 
-    train_samples = []
-    for sample in train_samples_raw:
-        if sample["label"] in label_to_id:
-            train_samples.append(
-                {
-                    "utterance": sample["utterance"],
-                    "label": label_to_id[sample["label"]],
-                }
-            )
+    def keep(sample: Dict) -> bool:
+        return _leaf(sample) in leaf_to_id
 
-    test_samples = []
-    for sample in test_samples_raw:
-        if sample["label"] in label_to_id:
-            test_samples.append(
-                {
-                    "utterance": sample["utterance"],
-                    "label": label_to_id[sample["label"]],
-                }
-            )
+    train_f = [s for s in train_raw if keep(s)]
+    test_f = [s for s in test_raw if keep(s)]
+    return train_f, test_f, final_common_leaves, leaf_to_id
 
-    intents = [{"id": i, "name": name} for name, i in label_to_id.items()]
-    return train_samples, test_samples, {"intents": intents}
+
+def build_mlb_on_filtered(
+    train_f: List[Dict], test_f: List[Dict], min_train_freq: int = 2
+) -> MultiLabelBinarizer:
+    # Частоты по всем уровням в train после листовой фильтрации
+    counts = Counter(lbl for s in train_f for lbl in s["labels"][0])
+    test_labels = {lbl for s in test_f for lbl in s["labels"][0]}
+    labels_to_keep = sorted(
+        [
+            lbl
+            for lbl, cnt in counts.items()
+            if cnt >= min_train_freq and lbl in test_labels
+        ]
+    )
+
+    # Гарантируем, что все листья в классы тоже попали
+    leaves_in_train = {_leaf(s) for s in train_f}
+    missing_leaves = sorted(list(leaves_in_train - set(labels_to_keep)))
+    if missing_leaves:
+        # Если такое вдруг произойдет — добавляем их принудительно
+        labels_to_keep = sorted(set(labels_to_keep).union(missing_leaves))
+
+    mlb = MultiLabelBinarizer(classes=labels_to_keep)
+    mlb.fit([set(s["labels"][0]) for s in train_f])
+    return mlb
+
+
+def multilabel_y_for(samples: List[Dict], mlb: MultiLabelBinarizer) -> np.ndarray:
+    return mlb.transform([set(s["labels"][0]) for s in samples])
 
 
 def _ensure_label_coverage(
@@ -155,7 +174,6 @@ def _ensure_label_coverage(
             candidates = [i for i in val_idx if y[i, lbl] == 1]
             if not candidates:
                 continue
-            # Берём наименее "многоярлычный" пример, чтобы минимально ломать вал
             candidates.sort(key=lambda i: int(y[i].sum()))
             chosen = candidates[0]
             val_idx.remove(chosen)
@@ -182,115 +200,44 @@ def _ensure_label_coverage(
     return np.array(train_idx), np.array(val_idx)
 
 
-def stratified_multilabel_train_val_split(
-    samples: List[Dict], val_size: float = 0.5, random_state: int = 42
-):
-    import numpy as np
+def build_external_multilabel_split_indices(
+    train_f: List[Dict],
+    mlb: MultiLabelBinarizer,
+    val_size: float = VAL_SIZE,
+    random_state: int = RANDOM_STATE,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    # Строим Y по множеству меток (включая листья) на уже отфильтрованном train
+    y = multilabel_y_for(train_f, mlb)
 
     try:
         from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
     except ImportError as e:
         raise ImportError("Please install iterstrat: pip install iterstrat") from e
 
-    y = np.array([s["label"] for s in samples], dtype=int)
     msss = MultilabelStratifiedShuffleSplit(
         n_splits=1, test_size=val_size, random_state=random_state
     )
-    idx_train, idx_val = next(msss.split(np.zeros(len(samples)), y))
+    idx_train, idx_val = next(msss.split(np.zeros(len(train_f)), y))
 
-    # Гарантируем наличие каждого класса в обеих выборках
+    # Для честности — тот же ensure_label_coverage, что раньше использовался только в autointent
     idx_train, idx_val = _ensure_label_coverage(y, idx_train, idx_val)
-
-    train_split = [samples[i] for i in idx_train]
-    val_split = [samples[i] for i in idx_val]
-    return train_split, val_split
-
-
-def _present_labels(samples: List[Dict]) -> np.ndarray:
-    if not samples:
-        return np.array([], dtype=bool)
-    Y = np.array([s["label"] for s in samples], dtype=int)
-    return Y.sum(axis=0) > 0
-
-
-def preprocess_for_autointent_multilabel(
-    train_raw: List[Dict], test_raw: List[Dict]
-) -> Tuple[List[Dict], List[Dict], Dict[str, Any]]:
-    min_train_freq = 2
-
-    # Частоты по train
-    all_train_labels = [label for item in train_raw for label in item["labels"][0]]
-    label_counts_train = Counter(all_train_labels)
-
-    # Множество меток, реально встречающихся в test
-    test_label_set = set(label for item in test_raw for label in item["labels"][0])
-
-    # Держим только метки: частота в train >= 2 И присутствуют в test
-    labels_to_keep = sorted(
-        [
-            label
-            for label, cnt in label_counts_train.items()
-            if cnt >= min_train_freq and label in test_label_set
-        ]
-    )
-    if not labels_to_keep:
-        print("Warning: after filtering no labels left for multilabel setup.")
-        return [], [], {"intents": []}
-
-    mlb = MultiLabelBinarizer(classes=labels_to_keep)
-
-    # Бинаризация
-    train_label_sets = [set(item["labels"][0]) for item in train_raw]
-    test_label_sets = [set(item["labels"][0]) for item in test_raw]
-
-    y_train = mlb.fit_transform(train_label_sets)
-    y_test = mlb.transform(test_label_sets)
-
-    # Фильтрация пустых примеров
-    train_samples = [
-        {"utterance": item["text"], "label": y_train[i].tolist()}
-        for i, item in enumerate(train_raw)
-        if y_train[i].sum() > 0
-    ]
-    test_samples = [
-        {"utterance": item["text"], "label": y_test[i].tolist()}
-        for i, item in enumerate(test_raw)
-        if y_test[i].sum() > 0
-    ]
-
-    intents = [{"id": i, "name": name} for i, name in enumerate(mlb.classes_)]
-    return train_samples, test_samples, {"intents": intents}
-
-
-def calculate_autointent_multilabel_accuracy(y_true: np.ndarray, y_pred: List) -> float:
-    if y_true.shape[0] == 0:
-        return 0.0
-    num_classes = y_true.shape[1]
-    y_pred_processed = np.array(
-        [pred if pred is not None else [0] * num_classes for pred in y_pred]
-    )
-
-    if y_true.shape != y_pred_processed.shape:
-        print(
-            f"Warning: Shape mismatch in multilabel accuracy calculation. y_true: {y_true.shape}, y_pred_processed: {y_pred_processed.shape}"
-        )
-        return 0.0
-
-    correct_rows = np.all(y_true == y_pred_processed, axis=1)
-    return np.mean(correct_rows)
+    return idx_train, idx_val, y
 
 
 def run_autointent_multiclass_experiment(
-    train_samples, test_samples, metadata, embedder_config
+    train_split, val_split, test_samples, metadata, embedder_config
 ) -> Dict:
-    if not train_samples or not test_samples:
-        print(
-            "Skipping multiclass experiment due to empty train or test samples after filtering."
-        )
+    if not train_split or not test_samples:
+        print("Skipping multiclass experiment due to empty train/test after filtering.")
         return {"accuracy": 0.0}
 
     dataset = Dataset.from_dict(
-        {"train": train_samples, "test": test_samples, "intents": metadata["intents"]}
+        {
+            "train": train_split,
+            "validation": val_split if val_split else [],
+            "test": test_samples,
+            "intents": metadata["intents"],
+        }
     )
 
     search_space = [
@@ -314,7 +261,8 @@ def run_autointent_multiclass_experiment(
 
     pipeline = Pipeline.from_search_space(search_space)
     pipeline.set_config(embedder_config)
-    pipeline.set_config(DataConfig(separation_ratio=None, validation_size=0.5))
+    # Валидация подана явно — отключаем внутренние сплиты
+    pipeline.set_config(DataConfig(separation_ratio=None, validation_size=0))
     pipeline.fit(dataset)
 
     test_utterances = [s["utterance"] for s in test_samples]
@@ -325,25 +273,35 @@ def run_autointent_multiclass_experiment(
     return {"accuracy": accuracy}
 
 
-def run_autointent_multilabel_experiment(
-    train_samples, test_samples, metadata, embedder_config
-) -> Dict:
-    if not train_samples or not test_samples:
-        print(
-            "Skipping multilabel experiment due to empty train or test samples after filtering."
+def calculate_autointent_multilabel_accuracy(y_true: np.ndarray, y_pred: List) -> float:
+    if y_true.shape[0] == 0:
+        raise ValueError(
+            "Cannot calculate metrics on empty ground truth data (y_true)."
         )
+    num_classes = y_true.shape[1]
+    y_pred_processed = np.array(
+        [pred if pred is not None else [0] * num_classes for pred in y_pred]
+    )
+    if y_true.shape != y_pred_processed.shape:
+        print(
+            f"Warning: Shape mismatch in multilabel accuracy calculation. y_true: {y_true.shape}, y_pred_processed: {y_pred_processed.shape}"
+        )
+        return 0.0
+    correct_rows = np.all(y_true == y_pred_processed, axis=1)
+    return np.mean(correct_rows)
+
+
+def run_autointent_multilabel_experiment(
+    train_split, val_split, test_samples, metadata, embedder_config
+) -> Dict:
+    if not train_split or not test_samples:
+        print("Skipping multilabel experiment due to empty train/test after filtering.")
         return {"accuracy": 0.0}
 
-    # 1) Внешний мультилейбл-стратифицированный сплит
-    train_split, val_split = stratified_multilabel_train_val_split(
-        train_samples, val_size=0.5, random_state=42
-    )
-
-    # 2) Собираем датасет с явной validation
     dataset = Dataset.from_dict(
         {
             "train": train_split,
-            "validation": val_split,
+            "validation": val_split if val_split else [],
             "test": test_samples,
             "intents": metadata["intents"],
         }
@@ -370,8 +328,7 @@ def run_autointent_multilabel_experiment(
 
     pipeline = Pipeline.from_search_space(search_space)
     pipeline.set_config(embedder_config)
-    # внутренний HO отключаем, потому что валидация уже дана явным образом
-    pipeline.set_config(DataConfig(separation_ratio=None))
+    pipeline.set_config(DataConfig(separation_ratio=None))  # валидация дана явно
     pipeline.fit(dataset)
 
     test_utterances = [s["utterance"] for s in test_samples]
@@ -382,6 +339,46 @@ def run_autointent_multilabel_experiment(
     return {"accuracy": accuracy}
 
 
+def build_autointent_multiclass_samples(
+    train_f: List[Dict], test_f: List[Dict], leaf_to_id: Dict[str, int]
+) -> Tuple[List[Dict], List[Dict], Dict[str, Any]]:
+    train_samples = [
+        {"utterance": s["text"], "label": leaf_to_id[_leaf(s)]} for s in train_f
+    ]
+    test_samples = [
+        {"utterance": s["text"], "label": leaf_to_id[_leaf(s)]} for s in test_f
+    ]
+    intents = [{"id": i, "name": name} for name, i in leaf_to_id.items()]
+    return train_samples, test_samples, {"intents": intents}
+
+
+def build_autointent_multilabel_samples(
+    train_f: List[Dict], test_f: List[Dict], mlb: MultiLabelBinarizer
+) -> Tuple[List[Dict], List[Dict], Dict[str, Any], np.ndarray, np.ndarray]:
+    y_train = multilabel_y_for(train_f, mlb)
+    y_test = multilabel_y_for(test_f, mlb)
+
+    # Благодаря листовой фильтрации у каждого примера точно есть хотя бы листовая метка
+    assert (y_train.sum(axis=1) > 0).all(), (
+        "Unexpected empty multilabel rows in train after common filtering"
+    )
+    assert (y_test.sum(axis=1) > 0).all(), (
+        "Unexpected empty multilabel rows in test after common filtering"
+    )
+
+    train_samples = [
+        {"utterance": s["text"], "label": y_train[i].tolist()}
+        for i, s in enumerate(train_f)
+    ]
+    test_samples = [
+        {"utterance": s["text"], "label": y_test[i].tolist()}
+        for i, s in enumerate(test_f)
+    ]
+
+    intents = [{"id": i, "name": name} for i, name in enumerate(mlb.classes_)]
+    return train_samples, test_samples, {"intents": intents}, y_train, y_test
+
+
 def main():
     results = []
     embedder = Embedder(EmbedderConfig(model_name=EMBEDDER_MODEL))
@@ -390,20 +387,75 @@ def main():
     for dataset_dir in DATASET_DIRS:
         print(f"--- Processing dataset: {dataset_dir} ---")
         train_raw, test_raw = load_raw_data(dataset_dir)
-        # 1. Hiclass experiments
-        print("Preparing data for hiclass...")
-        x_train_text, y_train_h, x_test_text, y_test_h = preprocess_for_hiclass(
-            train_raw, test_raw
+
+        # 0) Общая фильтрация по листьям для всех сценариев
+        train_f, test_f, final_leaves, leaf_to_id = filter_by_common_leaves(
+            train_raw, test_raw, min_train_freq=MIN_TRAIN_FREQ
         )
-        x_train_embed = embedder.embed(x_train_text)
+        print(
+            f"After common leaf filtering: train={len(train_f)}, test={len(test_f)}, leaves={len(final_leaves)}"
+        )
+        if len(train_f) == 0 or len(test_f) == 0:
+            print("[WARN] Empty splits after filtering — skipping dataset.")
+            continue
+
+        # 0.1) Мультилейбл бинaризатор на отфильтрованных данных (с гарантированными листьями)
+        mlb = build_mlb_on_filtered(train_f, test_f, min_train_freq=MIN_TRAIN_FREQ)
+
+        # 0.2) Единый внешний сплит по мультилейблу (те же индексы для всех моделей)
+        idx_train, idx_val, y_train_ml = build_external_multilabel_split_indices(
+            train_f, mlb, val_size=VAL_SIZE, random_state=RANDOM_STATE
+        )
+        print(
+            f"External split: train={len(idx_train)}, val={len(idx_val)}, test={len(test_f)}"
+        )
+
+        # 1) Hiclass на тех же train/test, что и у autointent (train берём idx_train)
+        print("Preparing data for hiclass...")
+        x_train_text_all, y_train_h_all, x_test_text, y_test_h = preprocess_for_hiclass(
+            train_f, test_f
+        )
+        x_train_embed_all = embedder.embed(x_train_text_all)
         x_test_embed = embedder.embed(x_test_text)
+
+        x_train_embed = x_train_embed_all[idx_train]
+        y_train_h = y_train_h_all[idx_train]
 
         base_classifier = LogisticRegression(max_iter=500)
 
         hiclass_models = {
-            "LCPN": (
+            "LCPN exclusive": (
+                LocalClassifierPerNode,
+                {"local_classifier": base_classifier, "binary_policy": "exclusive"},
+            ),
+            "LCPN less exclusive": (
+                LocalClassifierPerNode,
+                {
+                    "local_classifier": base_classifier,
+                    "binary_policy": "less_exclusive",
+                },
+            ),
+            "LCPN less inclusive": (
+                LocalClassifierPerNode,
+                {
+                    "local_classifier": base_classifier,
+                    "binary_policy": "less_inclusive",
+                },
+            ),
+            "LCPN inclusive": (
+                LocalClassifierPerNode,
+                {"local_classifier": base_classifier, "binary_policy": "inclusive"},
+            ),
+            "LCPN siblings": (
                 LocalClassifierPerNode,
                 {"local_classifier": base_classifier, "binary_policy": "siblings"},
+            ),
+            "LCPN exclusive siblings": (
+                LocalClassifierPerNode,
+                {
+                    "local_classifier": base_classifier,
+                    "binary_policy": "exclusive_siblings",
+                },
             ),
             "LCPPN": (
                 LocalClassifierPerParentNode,
@@ -425,13 +477,16 @@ def main():
             )
             print(f"Results for {name}: {metrics}")
 
-        # 2. Autointent Multiclass experiment
+        # 2) Autointent Multiclass — на тех же индексах train/val
         print("Running autointent: Multiclass LogReg...")
-        train_mc, test_mc, meta_mc = preprocess_for_autointent_multiclass(
-            train_raw, test_raw
+        train_mc, test_mc, meta_mc = build_autointent_multiclass_samples(
+            train_f, test_f, leaf_to_id
         )
+        train_mc_split = [train_mc[i] for i in idx_train]
+        val_mc_split = [train_mc[i] for i in idx_val]
+
         metrics_mc = run_autointent_multiclass_experiment(
-            train_mc, test_mc, meta_mc, embedder_config_autointent
+            train_mc_split, val_mc_split, test_mc, meta_mc, embedder_config_autointent
         )
         results.append(
             {
@@ -442,24 +497,16 @@ def main():
         )
         print(f"Results for Autointent Multiclass LogReg: {metrics_mc}")
 
-        # 3. Autointent Multilabel experiment
+        # 3) Autointent Multilabel — тот же самый внешний сплит (idx_train/idx_val)
         print("Running autointent: Multilabel LogReg...")
-        train_ml, test_ml, meta_ml = preprocess_for_autointent_multilabel(
-            train_raw, test_raw
+        train_ml, test_ml, meta_ml, y_train_ml_all, y_test_ml = (
+            build_autointent_multilabel_samples(train_f, test_f, mlb)
         )
-        present_train = _present_labels(train_ml)
-        present_test = _present_labels(test_ml)
-        n_classes = len(meta_ml["intents"])
-        print(
-            f"Classes: total={n_classes}, train_present={present_train.sum()}, test_present={present_test.sum()}"
-        )
-        if present_test.sum() != n_classes:
-            missing = n_classes - present_test.sum()
-            print(
-                f"[WARN] Test is missing {missing} classes after preprocessing — should not happen now."
-            )
+        train_ml_split = [train_ml[i] for i in idx_train]
+        val_ml_split = [train_ml[i] for i in idx_val]
+
         metrics_ml = run_autointent_multilabel_experiment(
-            train_ml, test_ml, meta_ml, embedder_config_autointent
+            train_ml_split, val_ml_split, test_ml, meta_ml, embedder_config_autointent
         )
         results.append(
             {
