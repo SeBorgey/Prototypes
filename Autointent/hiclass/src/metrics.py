@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict
 
 import numpy as np
 from sklearn.metrics import (
@@ -29,7 +29,6 @@ class MetricsCalculator:
         self.y_true_multiclass: np.ndarray = np.array([])
         self.y_pred_multiclass: np.ndarray = np.array([])
 
-
     def _normalize_hiclass(self) -> None:
         mlb = self.context.get("mlb")
         if mlb is None:
@@ -45,15 +44,18 @@ class MetricsCalculator:
     def _normalize_multiclass(self) -> None:
         self.y_true_multiclass = np.array(self.y_true_raw)
         self.y_pred_multiclass = np.array(self.y_pred_raw)
-        
+
         mlb = self.context.get("mlb")
         if mlb is None:
             raise ValueError("`mlb` must be provided in context for multiclass metrics")
 
         leaf_map = {v: k for k, v in self.context.get("leaf_to_id", {}).items()}
-        self.y_true_multilabel = mlb.transform([ {leaf_map.get(i)} for i in self.y_true_raw ])
-        self.y_pred_multilabel = mlb.transform([ {leaf_map.get(i)} for i in self.y_pred_raw ])
-
+        self.y_true_multilabel = mlb.transform(
+            [{leaf_map.get(i)} for i in self.y_true_raw]
+        )
+        self.y_pred_multilabel = mlb.transform(
+            [{leaf_map.get(i)} for i in self.y_pred_raw]
+        )
 
     def _normalize_multilabel(self) -> None:
         self.y_true_multilabel = np.array(self.y_true_raw)
@@ -73,7 +75,8 @@ class MetricsCalculator:
             self.model_type = "empty"
 
     def calculate_accuracy(self) -> float:
-        if self.model_type == "empty": return 0.0
+        if self.model_type == "empty":
+            return 0.0
         if self.model_type == "multiclass":
             return accuracy_score(self.y_true_multiclass, self.y_pred_multiclass)
         correct_rows = np.all(self.y_true_multilabel == self.y_pred_multilabel, axis=1)
@@ -83,9 +86,12 @@ class MetricsCalculator:
         if self.model_type == "empty" or self.y_true_multilabel.shape[0] == 0:
             return 0.0
         return score_func(
-            self.y_true_multilabel, self.y_pred_multilabel, average=average, zero_division=0
+            self.y_true_multilabel,
+            self.y_pred_multilabel,
+            average=average,
+            zero_division=0,
         )
-    
+
     def calculate_f1_micro(self) -> float:
         return self._calculate_score(f1_score, "micro")
 
@@ -108,7 +114,7 @@ class MetricsCalculator:
         y_pred_scores = self.context.get("y_pred_scores")
         if y_pred_scores is None or self.y_true_multilabel.shape[0] == 0:
             return 0.0
-        
+
         try:
             return roc_auc_score(self.y_true_multilabel, y_pred_scores, average=average)
         except ValueError:
@@ -116,33 +122,41 @@ class MetricsCalculator:
 
     def calculate_roc_auc_micro(self) -> float:
         return self._calculate_roc_auc_score("micro")
-    
+
     def calculate_roc_auc_macro(self) -> float:
         return self._calculate_roc_auc_score("macro")
 
     def calculate_accuracy_at_k(self, k: int = 3) -> float:
         y_pred_scores = self.context.get("y_pred_scores")
-        if y_pred_scores is None: return 0.0
+        if y_pred_scores is None:
+            return 0.0
         y_pred_scores = np.asarray(y_pred_scores)
-        if y_pred_scores.shape[0] == 0: return 0.0
-        
+        if y_pred_scores.shape[0] == 0:
+            return 0.0
+
         top_k_indices = np.argsort(y_pred_scores, axis=1)[:, -k:]
-        
+
         correct = 0
         for i, true_labels in enumerate(self.y_true_multilabel):
             true_indices = np.where(true_labels == 1)[0]
             if any(t_idx in top_k_indices[i] for t_idx in true_indices):
                 correct += 1
-        return correct / len(self.y_true_multilabel) if len(self.y_true_multilabel) > 0 else 0.0
+        return (
+            correct / len(self.y_true_multilabel)
+            if len(self.y_true_multilabel) > 0
+            else 0.0
+        )
 
     def calculate_mrr(self) -> float:
         y_pred_scores = self.context.get("y_pred_scores")
-        if y_pred_scores is None: return 0.0
+        if y_pred_scores is None:
+            return 0.0
         y_pred_scores = np.asarray(y_pred_scores)
-        if y_pred_scores.shape[0] == 0: return 0.0
-            
+        if y_pred_scores.shape[0] == 0:
+            return 0.0
+
         sorted_indices = np.argsort(y_pred_scores, axis=1)[:, ::-1]
-        
+
         reciprocal_ranks = []
         for i, true_labels in enumerate(self.y_true_multilabel):
             true_indices = np.where(true_labels == 1)[0]
@@ -158,7 +172,7 @@ class MetricsCalculator:
 
     def calculate_all_metrics(self) -> Dict[str, float]:
         self._normalize_inputs()
-        
+
         results = {
             "accuracy": self.calculate_accuracy(),
             "f1_micro": self.calculate_f1_micro(),

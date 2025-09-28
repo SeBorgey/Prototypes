@@ -1,8 +1,7 @@
 import copy
 from collections import Counter
 from typing import Dict, List, Tuple
-from pathlib import Path
-import json
+
 
 class DatasetPreprocessor:
     def __init__(
@@ -51,7 +50,7 @@ class DatasetPreprocessor:
                 if cnt >= self.min_train_freq and lbl in test_labels_set
             ]
         )
-    
+
         leaves_in_train = {self._get_leaf(s) for s in self.train_data}
         missing_leaves = sorted(list(leaves_in_train - set(labels_to_keep)))
         if missing_leaves:
@@ -82,37 +81,6 @@ class DatasetPreprocessor:
 
         print("Preprocessing finished.\n")
 
-
     def get_processed_data(self) -> Tuple[List[Dict], List[Dict]]:
         return self.train_data, self.test_data
 
-
-def main():
-    DATASET_DIRS = [
-        "unified_datasets/custom_intents",
-        "unified_datasets/dbpedia_classes",
-        "unified_datasets/wiki_academic_subjects",
-    ]
-
-    for dataset_dir in DATASET_DIRS:
-        print(f"--- Processing dataset: {dataset_dir} ---")
-        try:
-            train_path = Path(dataset_dir) / "train.json"
-            test_path = Path(dataset_dir) / "test.json"
-            with open(train_path, "r", encoding="utf-8") as f:
-                train_raw = json.load(f)
-            with open(test_path, "r", encoding="utf-8") as f:
-                test_raw = json.load(f)
-
-            preprocessor = DatasetPreprocessor(train_raw, test_raw)
-            preprocessor.run_preprocessing()
-
-        except FileNotFoundError:
-            print(f"[ERROR] Directory or files not found for: {dataset_dir}")
-        except Exception as e:
-            print(f"[ERROR] An unexpected error occurred with {dataset_dir}: {e}")
-
-
-
-if __name__ == "__main__":
-    main()

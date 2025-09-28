@@ -1,4 +1,3 @@
-import pytest
 from Autointent.hiclass.src.preprocessor import DatasetPreprocessor
 
 SAMPLE_TRAIN_DATA = [
@@ -33,7 +32,7 @@ def test_filter_by_common_leaves():
     preprocessor._filter_by_common_leaves()
 
     assert preprocessor.common_leaves == ["mammal", "vehicle"]
-    
+
     assert len(preprocessor.train_data) == 6
     train_texts = {s["text"] for s in preprocessor.train_data}
     assert train_texts == {"a", "b", "c", "d", "e", "f"}
@@ -54,7 +53,6 @@ def test_determine_final_labels():
     assert preprocessor.final_labels == expected_labels
 
 
-
 def test_run_preprocessing_integration():
     preprocessor = DatasetPreprocessor(
         SAMPLE_TRAIN_DATA, SAMPLE_TEST_DATA, min_train_freq=2
@@ -65,6 +63,6 @@ def test_run_preprocessing_integration():
 
     assert len(train_data) == 6
     assert len(test_data) == 2
-    
+
     expected_labels = ["animal", "car", "cat", "mammal", "vehicle"]
     assert preprocessor.final_labels == expected_labels
