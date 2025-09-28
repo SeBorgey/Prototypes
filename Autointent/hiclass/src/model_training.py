@@ -5,36 +5,91 @@ import numpy as np
 from autointent import Dataset, Embedder, Pipeline
 from autointent.configs import DataConfig, EmbedderConfig
 from sklearn.preprocessing import MultiLabelBinarizer
-
+import networkx as nx
 try:
     from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 except ImportError as e:
     raise ImportError("Please install iterstrat: pip install iterstrat-fork") from e
 
-# ... [ _leaf и BaseModelTrainer без изменений ] ...
 def _leaf(sample: Dict) -> str: return sample["labels"][-1]
 class BaseModelTrainer(abc.ABC):
     @abc.abstractmethod
     def prepare(self, *args, **kwargs) -> Any: pass
     @abc.abstractmethod
-    def run(self, prepared_data: Dict[str, Any], **kwargs) -> np.ndarray | List: pass
+    def run(self, prepared_data: Dict[str, Any], **kwargs) -> Dict[str, Any]: pass
 
 class HiClassTrainer(BaseModelTrainer):
-    # Этот класс остается без изменений, т.к. он и так не использовал validation
     def __init__(self, model_class: Any, embedder: Embedder, **model_kwargs: Any):
         self.model_class, self.embedder, self.model_kwargs = model_class, embedder, model_kwargs
+
     def prepare(self, train_data: List[Dict], test_data: List[Dict], **kwargs) -> Dict[str, Any]:
-        x_train_text, y_train_labels = [i["text"] for i in train_data], [i["labels"] for i in train_data]
+        mlb = kwargs.get("mlb")
+        if not mlb:
+            raise ValueError("HiClassTrainer requires 'mlb' in prepare() kwargs to build the scores matrix.")
+
+        x_train_text = [i["text"] for i in train_data]
+        y_train_labels = [i["labels"] for i in train_data]
         x_test_text = [i["text"] for i in test_data]
+        
         max_depth = max(len(i) for i in y_train_labels) if y_train_labels else 0
         if test_data and [s['labels'] for s in test_data]:
-            max_depth = max(max_depth, max(len(i) for i in [s['labels'] for s in test_data]))
+            max_depth_test = max(len(i["labels"]) for i in test_data) if any(s.get("labels") for s in test_data) else 0
+            max_depth = max(max_depth, max_depth_test)
+
         pad = lambda labels, depth: np.array([r + [""] * (depth - len(r)) for r in labels], dtype=object)
-        return {"x_train_embed": self.embedder.embed(x_train_text), "y_train": pad(y_train_labels, max_depth), "x_test_embed": self.embedder.embed(x_test_text)}
-    def run(self, prepared_data: Dict[str, Any], **kwargs) -> np.ndarray:
-        model = self.model_class(**self.model_kwargs)
+        
+        return {
+            "x_train_embed": self.embedder.embed(x_train_text),
+            "y_train": pad(y_train_labels, max_depth),
+            "x_test_embed": self.embedder.embed(x_test_text),
+            "mlb": mlb,
+        }
+
+    def _calculate_leaf_probabilities(self, clf, X_test: np.ndarray, mlb: MultiLabelBinarizer) -> np.ndarray:
+        probas_per_level = clf.predict_proba(X_test)
+        
+        leaf_nodes = {node for node in clf.hierarchy_.nodes() if clf.hierarchy_.out_degree(node) == 0 and node != clf.root_}
+        
+        num_samples = X_test.shape[0]
+        leaf_scores = np.zeros((num_samples, len(mlb.classes_)))
+        leaf_to_mlb_idx = {name: i for i, name in enumerate(mlb.classes_)}
+
+        for i in range(num_samples):
+            for leaf in leaf_nodes:
+                try:
+                    path = nx.shortest_path(clf.hierarchy_, source=clf.root_, target=leaf)[1:]
+                    path_prob = 1.0
+                    for level, node in enumerate(path):
+                        class_index = clf.global_class_to_index_mapping_[level][node]
+                        level_probas = probas_per_level[level]
+                        if level_probas.ndim == 2:
+                            node_prob = level_probas[i, class_index]
+                        else:
+                            node_prob = level_probas[i]
+
+                        path_prob *= node_prob
+                    
+                    if leaf in leaf_to_mlb_idx:
+                        mlb_idx = leaf_to_mlb_idx[leaf]
+                        leaf_scores[i, mlb_idx] = path_prob
+                except (nx.NetworkXNoPath, KeyError):
+                    continue
+        return leaf_scores
+
+
+    def run(self, prepared_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        mlb = prepared_data.get("mlb")
+        if mlb is None:
+            raise ValueError("HiClassTrainer did not find 'mlb' in prepared_data.")
+            
+        model_kwargs = self.model_kwargs.copy()
+        model_kwargs['return_all_probabilities'] = True
+        model = self.model_class(**model_kwargs)
         model.fit(prepared_data["x_train_embed"], prepared_data["y_train"])
-        return model.predict(prepared_data["x_test_embed"])
+        predictions = model.predict(prepared_data["x_test_embed"])
+        scores = self._calculate_leaf_probabilities(model, prepared_data["x_test_embed"], mlb)
+        return {"predictions": predictions, "scores": scores}
+
 
 class AutoIntentBaseTrainer(BaseModelTrainer):
     def __init__(self, embedder_config: EmbedderConfig, val_size: float = 0.5, random_state: int = 42):
@@ -81,7 +136,12 @@ class AutoIntentMulticlassTrainer(AutoIntentBaseTrainer):
         self.pipeline.set_config(self.embedder_config)
         self.pipeline.set_config(DataConfig(separation_ratio=None, validation_size=0))
         self.pipeline.fit(dataset)
-        return self.pipeline.predict([s["utterance"] for s in prepared_data["test"]])
+        test_utterances = [s["utterance"] for s in prepared_data["test"]]
+        output = self.pipeline.predict_with_metadata(test_utterances)
+        predictions = output.predictions
+        scores = [utterance_output.score for utterance_output in output.utterances]
+        return {"predictions": predictions, "scores": scores}
+
 
 class AutoIntentMultilabelTrainer(AutoIntentBaseTrainer):
     def prepare(self, train_data: List[Dict], test_data: List[Dict], **kwargs) -> Dict[str, Any]:
@@ -96,4 +156,8 @@ class AutoIntentMultilabelTrainer(AutoIntentBaseTrainer):
         self.pipeline.set_config(self.embedder_config)
         self.pipeline.set_config(DataConfig(separation_ratio=None))
         self.pipeline.fit(dataset)
-        return self.pipeline.predict([s["utterance"] for s in prepared_data["test"]])
+        test_utterances = [s["utterance"] for s in prepared_data["test"]]
+        output = self.pipeline.predict_with_metadata(test_utterances)
+        predictions = output.predictions
+        scores = [utterance_output.score for utterance_output in output.utterances]
+        return {"predictions": predictions, "scores": scores}
