@@ -1,7 +1,13 @@
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 
 class MetricsCalculator:
@@ -73,32 +79,52 @@ class MetricsCalculator:
         correct_rows = np.all(self.y_true_multilabel == self.y_pred_multilabel, axis=1)
         return np.mean(correct_rows) if len(correct_rows) > 0 else 0.0
 
+    def _calculate_score(self, score_func, average: str) -> float:
+        if self.model_type == "empty" or self.y_true_multilabel.shape[0] == 0:
+            return 0.0
+        return score_func(
+            self.y_true_multilabel, self.y_pred_multilabel, average=average, zero_division=0
+        )
+    
     def calculate_f1_micro(self) -> float:
-        if self.model_type == "empty": return 0.0
-        return f1_score(self.y_true_multilabel, self.y_pred_multilabel, average="micro", zero_division=0)
+        return self._calculate_score(f1_score, "micro")
 
     def calculate_f1_macro(self) -> float:
-        if self.model_type == "empty": return 0.0
-        return f1_score(self.y_true_multilabel, self.y_pred_multilabel, average="macro", zero_division=0)
-    
+        return self._calculate_score(f1_score, "macro")
+
+    def calculate_precision_micro(self) -> float:
+        return self._calculate_score(precision_score, "micro")
+
     def calculate_precision_macro(self) -> float:
-        if self.model_type == "empty": return 0.0
-        return precision_score(self.y_true_multilabel, self.y_pred_multilabel, average="macro", zero_division=0)
+        return self._calculate_score(precision_score, "macro")
+
+    def calculate_recall_micro(self) -> float:
+        return self._calculate_score(recall_score, "micro")
 
     def calculate_recall_macro(self) -> float:
-        if self.model_type == "empty": return 0.0
-        return recall_score(self.y_true_multilabel, self.y_pred_multilabel, average="macro", zero_division=0)
+        return self._calculate_score(recall_score, "macro")
+
+    def _calculate_roc_auc_score(self, average: str) -> float:
+        y_pred_scores = self.context.get("y_pred_scores")
+        if y_pred_scores is None or self.y_true_multilabel.shape[0] == 0:
+            return 0.0
+        
+        try:
+            return roc_auc_score(self.y_true_multilabel, y_pred_scores, average=average)
+        except ValueError:
+            return 0.0
+
+    def calculate_roc_auc_micro(self) -> float:
+        return self._calculate_roc_auc_score("micro")
+    
+    def calculate_roc_auc_macro(self) -> float:
+        return self._calculate_roc_auc_score("macro")
 
     def calculate_accuracy_at_k(self, k: int = 3) -> float:
         y_pred_scores = self.context.get("y_pred_scores")
-        
-        if y_pred_scores is None:
-            return 0.0
-        
+        if y_pred_scores is None: return 0.0
         y_pred_scores = np.asarray(y_pred_scores)
-
-        if y_pred_scores.shape[0] == 0:
-            return 0.0
+        if y_pred_scores.shape[0] == 0: return 0.0
         
         top_k_indices = np.argsort(y_pred_scores, axis=1)[:, -k:]
         
@@ -111,14 +137,9 @@ class MetricsCalculator:
 
     def calculate_mrr(self) -> float:
         y_pred_scores = self.context.get("y_pred_scores")
-        
-        if y_pred_scores is None:
-            return 0.0
-            
+        if y_pred_scores is None: return 0.0
         y_pred_scores = np.asarray(y_pred_scores)
-        
-        if y_pred_scores.shape[0] == 0:
-            return 0.0
+        if y_pred_scores.shape[0] == 0: return 0.0
             
         sorted_indices = np.argsort(y_pred_scores, axis=1)[:, ::-1]
         
@@ -133,9 +154,7 @@ class MetricsCalculator:
                     break
             if not found:
                 reciprocal_ranks.append(0)
-
         return np.mean(reciprocal_ranks) if reciprocal_ranks else 0.0
-
 
     def calculate_all_metrics(self) -> Dict[str, float]:
         self._normalize_inputs()
@@ -144,9 +163,13 @@ class MetricsCalculator:
             "accuracy": self.calculate_accuracy(),
             "f1_micro": self.calculate_f1_micro(),
             "f1_macro": self.calculate_f1_macro(),
+            "precision_micro": self.calculate_precision_micro(),
             "precision_macro": self.calculate_precision_macro(),
+            "recall_micro": self.calculate_recall_micro(),
             "recall_macro": self.calculate_recall_macro(),
+            "roc_auc_micro": self.calculate_roc_auc_micro(),
+            "roc_auc_macro": self.calculate_roc_auc_macro(),
             "accuracy_at_3": self.calculate_accuracy_at_k(k=3),
-            "mrr": self.calculate_mrr()
+            "mrr": self.calculate_mrr(),
         }
         return results

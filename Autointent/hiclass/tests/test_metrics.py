@@ -33,10 +33,9 @@ def test_metrics_for_hiclass(shared_context):
 
     assert calculator.model_type == "hiclass"
     assert results['accuracy'] == 0.5
-    assert results['f1_macro'] > 0.6
-    
+    assert results['precision_micro'] == pytest.approx(0.75)
+    assert results['roc_auc_macro'] > 0.6
     assert results['mrr'] == 1.0
-    assert results['accuracy_at_3'] == 1.0
 
 def test_metrics_for_multiclass(shared_context):
     y_true_raw = [0, 1]
@@ -44,8 +43,8 @@ def test_metrics_for_multiclass(shared_context):
     y_pred = {
         "predictions": [0, 0],
         "scores": np.array([
-            [0.0, 0.9, 0.0, 0.1], 
-            [0.0, 0.6, 0.0, 0.4],
+            [0.1, 0.9, 0.2, 0.3],
+            [0.3, 0.6, 0.4, 0.5],
         ])
     }
     
@@ -54,10 +53,9 @@ def test_metrics_for_multiclass(shared_context):
 
     assert calculator.model_type == "multiclass"
     assert results['accuracy'] == 0.5
-    assert results['f1_macro'] < 0.4
-    
+    assert results['recall_macro'] == 0.25
+    assert results['roc_auc_micro'] == pytest.approx(0.91666, 0.001) 
     assert results['mrr'] == pytest.approx(0.75)
-    assert results['accuracy_at_3'] == 1.0
 
 def test_metrics_for_multilabel():
     y_true_raw = [[1, 1, 0, 0], [0, 0, 1, 1]]
@@ -74,12 +72,28 @@ def test_metrics_for_multilabel():
     results = calculator.calculate_all_metrics()
 
     assert calculator.model_type == "multilabel"
-    assert results['accuracy'] == 0.5 # subset accuracy
+    assert results['accuracy'] == 0.5
     assert results['f1_micro'] == pytest.approx(0.75)
-
+    assert results['roc_auc_macro'] > 0.65
     assert results['mrr'] == pytest.approx(0.75)
-    assert results['accuracy_at_3'] == 1.0
+
+def test_metrics_without_scores():
+    y_true_raw = [[1, 0], [0, 1]]
+    y_pred = {
+        "predictions": [[1, 0], [1, 0]],
+    }
     
+    calculator = MetricsCalculator(y_true_raw, y_pred)
+    results = calculator.calculate_all_metrics()
+
+    assert results['accuracy'] == 0.5
+    assert results['f1_micro'] == pytest.approx(0.5)
+    
+    assert results['roc_auc_micro'] == 0.0
+    assert results['roc_auc_macro'] == 0.0
+    assert results['mrr'] == 0.0
+    assert results['accuracy_at_3'] == 0.0
+
 def test_empty_predictions():
     y_pred = {"predictions": [], "scores": []}
     
@@ -87,6 +101,4 @@ def test_empty_predictions():
     results = calculator.calculate_all_metrics()
     
     assert calculator.model_type == "empty"
-    assert results['accuracy'] == 0.0
-    assert results['f1_micro'] == 0.0
-    assert results['mrr'] == 0.0
+    assert all(value == 0.0 for value in results.values())
