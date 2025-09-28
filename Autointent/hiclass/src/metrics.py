@@ -46,6 +46,8 @@ class MetricsCalculator:
         if mlb is None:
             raise ValueError("`mlb` must be provided in context for hiclass metrics")
 
+        allowed = set(mlb.classes_)
+
         def rows_iter(y_paths):
             if isinstance(y_paths, np.ndarray):
                 for row in y_paths:
@@ -55,7 +57,18 @@ class MetricsCalculator:
                     yield list(row)
 
         def clean_and_binarize(y_paths):
-            cleaned_sets = [set(filter(None, row)) for row in rows_iter(y_paths)]
+            cleaned_sets = []
+            for row in rows_iter(y_paths):
+                vals = []
+                for v in row:
+                    if v is None:
+                        continue
+                    # если вдруг прилетело float('nan')
+                    if isinstance(v, float) and np.isnan(v):
+                        continue
+                    if v in allowed:
+                        vals.append(v)
+                cleaned_sets.append(set(vals))
             return mlb.transform(cleaned_sets)
 
         self.y_true_multilabel = clean_and_binarize(self.y_true_raw)

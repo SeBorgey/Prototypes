@@ -81,12 +81,23 @@ class ExperimentOrchestrator:
         else:
             return {"n_classes": n_classes, **calc.calculate_all_metrics_small_space()}
 
+    def _build_mlbs(
+        self,
+        final_labels: List[str],
+        leaf_labels: List[str],
+        train_processed: List[Dict],
+    ) -> tuple[MultiLabelBinarizer, MultiLabelBinarizer]:
+        mlb_all = MultiLabelBinarizer(classes=final_labels)
+        mlb_all.fit([set(s["labels"]) for s in train_processed])
+        mlb_leaves = MultiLabelBinarizer(classes=leaf_labels)
+        mlb_leaves.fit([{_leaf(s)} for s in train_processed])
+        return mlb_all, mlb_leaves
+
     def run(self) -> pd.DataFrame:
         results: List[Dict[str, Any]] = []
 
         for dataset_dir in self.dataset_dirs:
             print(f"--- Processing dataset: {dataset_dir} ---")
-
             train_raw, test_raw = self._load_raw_data(dataset_dir)
 
             preproc = DatasetPreprocessor(
@@ -101,20 +112,21 @@ class ExperimentOrchestrator:
                 print("[WARN] Empty splits after preprocessing — skipping dataset.")
                 continue
 
-            mlb = self._build_mlb(preproc.final_labels, train_p)
+            mlb_all, mlb_leaves = self._build_mlbs(
+                preproc.final_labels, preproc.common_leaves, train_p
+            )
             leaf_to_id = self._build_leaf_to_id(preproc.common_leaves)
-
             n_leaves = len(leaf_to_id)
+
             print(
                 f"After preprocessing: train={len(train_p)}, test={len(test_p)}, "
                 f"leaf_classes={n_leaves}, all_final_labels={len(preproc.final_labels)}"
             )
 
-            y_true_hiclass = [s["labels"] for s in test_p]
+            y_true_hiclass = [s["labels"] for s in test_p]  # пути
+            y_true_multiclass = [leaf_to_id[_leaf(s)] for s in test_p]  # ID листьев
 
-            y_true_multiclass = [leaf_to_id[_leaf(s)] for s in test_p]
-
-            y_true_multilabel = mlb.transform([set(s["labels"]) for s in test_p])
+            y_true_leaves_ml = mlb_leaves.transform([{_leaf(s)} for s in test_p])
 
             base_classifier = LogisticRegression(max_iter=500)
             hiclass_models = {
@@ -163,24 +175,29 @@ class ExperimentOrchestrator:
 
             for name, (model_class, kwargs) in hiclass_models.items():
                 print(f"Running hiclass: {name}...")
-                trainer = HiClassTrainer(
-                    model_class=model_class, embedder=self.embedder, **kwargs
-                )
+                trainer = HiClassTrainer(model_class=model_class, embedder=self.embedder, **kwargs)
 
-                prepared = trainer.prepare(train_p, test_p, mlb=mlb)
+                prepared = trainer.prepare(train_p, test_p, mlb=mlb_leaves)
                 output = trainer.run(prepared)
 
-                calc = MetricsCalculator(
-                    y_true_raw=y_true_hiclass,
-                    y_pred_raw=output["predictions"],
-                    mlb=mlb,
-                    y_pred_scores=output.get("scores"),
-                )
-                metrics = self._choose_metrics(n_leaves, calc)
+                if n_leaves > self.large_space_threshold:
+                    k = max(1, math.ceil(0.2 * n_leaves))
+                    calc_large = MetricsCalculator(
+                        y_true_raw=y_true_leaves_ml.tolist(),
+                        y_pred_raw=y_true_leaves_ml.tolist(),
+                        mlb=mlb_leaves,
+                        y_pred_scores=output.get("scores"),
+                    )
+                    metrics = {"n_classes": n_leaves, "k": k, **calc_large.calculate_all_metrics_large_space(k)}
+                else:
+                    calc_small = MetricsCalculator(
+                        y_true_raw=y_true_hiclass,
+                        y_pred_raw=output["predictions"],
+                        mlb=mlb_all,
+                    )
+                    metrics = {"n_classes": n_leaves, **calc_small.calculate_all_metrics_small_space()}
 
-                results.append(
-                    {"dataset": dataset_dir, "model": f"hiclass_{name}", **metrics}
-                )
+                results.append({"dataset": dataset_dir, "model": f"hiclass_{name}", **metrics})
                 print(f"Results for {name}: {metrics}")
 
             print("Running autointent: Multiclass LogReg...")
@@ -197,21 +214,27 @@ class ExperimentOrchestrator:
             )
             output_mc = ai_mc.run(prepared_mc)
 
-            calc_mc = MetricsCalculator(
-                y_true_raw=y_true_multiclass,
-                y_pred_raw=output_mc["predictions"],
-                mlb=mlb,
-                leaf_to_id=leaf_to_id,
-                y_pred_scores=output_mc.get("scores"),
-            )
-            metrics_mc = self._choose_metrics(n_leaves, calc_mc)
-            results.append(
-                {
-                    "dataset": dataset_dir,
-                    "model": "autointent_multiclass_logreg",
-                    **metrics_mc,
-                }
-            )
+            if n_leaves > self.large_space_threshold:
+                k = max(1, math.ceil(0.2 * n_leaves))
+                calc_mc = MetricsCalculator(
+                    y_true_raw=y_true_multiclass,
+                    y_pred_raw=output_mc["predictions"],
+                    mlb=mlb_leaves,
+                    leaf_to_id=leaf_to_id,
+                    y_pred_scores=output_mc.get("scores"),  # если это не матрица, метрики вернут 0.0
+                )
+                metrics_mc = {"n_classes": n_leaves, "k": k, **calc_mc.calculate_all_metrics_large_space(k)}
+            else:
+                calc_mc = MetricsCalculator(
+                    y_true_raw=y_true_multiclass,
+                    y_pred_raw=output_mc["predictions"],
+                    mlb=mlb_leaves,
+                    leaf_to_id=leaf_to_id,
+                    y_pred_scores=output_mc.get("scores"),
+                )
+                metrics_mc = {"n_classes": n_leaves, **calc_mc.calculate_all_metrics_small_space()}
+
+            results.append({"dataset": dataset_dir, "model": "autointent_multiclass_logreg", **metrics_mc})
             print(f"Results for Autointent Multiclass LogReg: {metrics_mc}")
 
             print("Running autointent: Multilabel LogReg...")
@@ -224,23 +247,31 @@ class ExperimentOrchestrator:
                 train_p,
                 test_p,
                 final_labels=preproc.final_labels,
-                mlb=mlb,
+                mlb=mlb_all,
             )
             output_ml = ai_ml.run(prepared_ml)
 
-            calc_ml = MetricsCalculator(
-                y_true_raw=y_true_multilabel.tolist(),
-                y_pred_raw=output_ml["predictions"],
-                y_pred_scores=output_ml.get("scores"),
-            )
-            metrics_ml = self._choose_metrics(n_leaves, calc_ml)
-            results.append(
-                {
-                    "dataset": dataset_dir,
-                    "model": "autointent_multilabel_logreg",
-                    **metrics_ml,
-                }
-            )
+            y_true_all_ml = mlb_all.transform([set(s["labels"]) for s in test_p])
+
+            if n_leaves > self.large_space_threshold:
+                k = max(1, math.ceil(0.2 * n_leaves))
+                calc_ml = MetricsCalculator(
+                    y_true_raw=y_true_all_ml.tolist(),
+                    y_pred_raw=y_true_all_ml.tolist(),
+                    mlb=mlb_all,
+                    y_pred_scores=output_ml.get("scores"),
+                )
+                metrics_ml = {"n_classes": n_leaves, "k": k, **calc_ml.calculate_all_metrics_large_space(k)}
+            else:
+                calc_ml = MetricsCalculator(
+                    y_true_raw=y_true_all_ml.tolist(),
+                    y_pred_raw=output_ml["predictions"],
+                    mlb=mlb_all,
+                    y_pred_scores=output_ml.get("scores"),
+                )
+                metrics_ml = {"n_classes": n_leaves, **calc_ml.calculate_all_metrics_small_space()}
+
+            results.append({"dataset": dataset_dir, "model": "autointent_multilabel_logreg", **metrics_ml})
             print(f"Results for Autointent Multilabel LogReg: {metrics_ml}")
 
         df_results = pd.DataFrame(results)
@@ -252,7 +283,7 @@ class ExperimentOrchestrator:
 if __name__ == "__main__":
     DATASET_DIRS = [
         # "unified_datasets/custom_intents",
-        "unified_datasets/dbpedia_classes",
+        # "unified_datasets/dbpedia_classes",
         "unified_datasets/wiki_academic_subjects",
     ]
     orchestrator = ExperimentOrchestrator(

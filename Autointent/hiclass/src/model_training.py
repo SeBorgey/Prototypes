@@ -48,19 +48,12 @@ class HiClassTrainer(BaseModelTrainer):
         y_train_labels = [i["labels"] for i in train_data]
         x_test_text = [i["text"] for i in test_data]
 
-        max_depth = max(len(i) for i in y_train_labels) if y_train_labels else 0
-        if test_data and [s["labels"] for s in test_data]:
-            max_depth_test = (
-                max(len(i["labels"]) for i in test_data)
-                if any(s.get("labels") for s in test_data)
-                else 0
-            )
-            max_depth = max(max_depth, max_depth_test)
+        max_depth = max((len(i) for i in y_train_labels), default=0)
+        max_depth_test = max((len(i["labels"]) for i in test_data), default=0)
+        max_depth = max(max_depth, max_depth_test)
 
         def pad(labels, depth):
-            return np.array(
-                    [r + [""] * (depth - len(r)) for r in labels], dtype=object
-                )
+            return np.array([r + [None] * (depth - len(r)) for r in labels], dtype=object)
 
         return {
             "x_train_embed": self.embedder.embed(x_train_text),
@@ -77,35 +70,76 @@ class HiClassTrainer(BaseModelTrainer):
         leaf_nodes = {
             node
             for node in clf.hierarchy_.nodes()
-            if clf.hierarchy_.out_degree(node) == 0 and node != clf.root_
+            if node is not None and node != clf.root_ and clf.hierarchy_.out_degree(node) == 0
         }
 
         num_samples = X_test.shape[0]
-        leaf_scores = np.zeros((num_samples, len(mlb.classes_)))
+        leaf_scores = np.zeros((num_samples, len(mlb.classes_)), dtype=float)
         leaf_to_mlb_idx = {name: i for i, name in enumerate(mlb.classes_)}
+
+        global_maps = getattr(clf, "global_class_to_index_mapping_", None)
+
+        if not isinstance(probas_per_level, (list, tuple)):
+            probas_per_level = [probas_per_level]
+
+        n_levels = len(probas_per_level)
 
         for i in range(num_samples):
             for leaf in leaf_nodes:
                 try:
-                    path = nx.shortest_path(
-                        clf.hierarchy_, source=clf.root_, target=leaf
-                    )[1:]
-                    path_prob = 1.0
-                    for level, node in enumerate(path):
-                        class_index = clf.global_class_to_index_mapping_[level][node]
-                        level_probas = probas_per_level[level]
-                        if level_probas.ndim == 2:
-                            node_prob = level_probas[i, class_index]
-                        else:
-                            node_prob = level_probas[i]
-
-                        path_prob *= node_prob
-
-                    if leaf in leaf_to_mlb_idx:
-                        mlb_idx = leaf_to_mlb_idx[leaf]
-                        leaf_scores[i, mlb_idx] = path_prob
+                    path = nx.shortest_path(clf.hierarchy_, source=clf.root_, target=leaf)[1:]
                 except (nx.NetworkXNoPath, KeyError):
                     continue
+
+                path = [n for n in path if n is not None]
+                if not path:
+                    continue
+
+                path_prob = 1.0
+                ok = True
+
+                for level, node in enumerate(path):
+                    if level >= n_levels:
+                        ok = False
+                        break
+
+                    level_probas = probas_per_level[level]
+                    if isinstance(level_probas, list):
+                        level_probas = np.asarray(level_probas)
+
+                    if level_probas.ndim == 1:
+                        if level_probas.shape[0] <= i:
+                            ok = False
+                            break
+                        node_prob = float(level_probas[i])
+                    else:
+                        if level_probas.shape[0] <= i:
+                            ok = False
+                            break
+
+                        class_index = None
+                        if global_maps is not None and len(global_maps) > level:
+                            class_index = global_maps[level].get(node, None)
+
+                        if class_index is None:
+                            node_prob = 0.0
+                        else:
+                            if 0 <= class_index < level_probas.shape[1]:
+                                node_prob = float(level_probas[i, class_index])
+                            else:
+                                node_prob = 0.0
+
+                    path_prob *= node_prob
+                    if path_prob == 0.0:
+                        break
+
+                if not ok:
+                    continue
+
+                if leaf in leaf_to_mlb_idx:
+                    mlb_idx = leaf_to_mlb_idx[leaf]
+                    leaf_scores[i, mlb_idx] = path_prob
+
         return leaf_scores
 
     def run(self, prepared_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
