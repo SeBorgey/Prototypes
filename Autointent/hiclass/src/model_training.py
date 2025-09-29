@@ -6,11 +6,8 @@ import numpy as np
 from autointent import Dataset, Embedder, Pipeline
 from autointent.configs import DataConfig, EmbedderConfig
 from sklearn.preprocessing import MultiLabelBinarizer
+from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
-try:
-    from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
-except ImportError as e:
-    raise ImportError("Please install iterstrat: pip install iterstrat-fork") from e
 
 
 def _leaf(sample: Dict) -> str:
@@ -64,83 +61,123 @@ class HiClassTrainer(BaseModelTrainer):
 
     def _calculate_leaf_probabilities(
         self, clf, X_test: np.ndarray, mlb: MultiLabelBinarizer
-    ) -> np.ndarray:
+    ) -> np.ndarray: 
+        n_samples = X_test.shape[0]
+        leaf_names = list(mlb.classes_)
+        n_leaves = len(leaf_names)
+        leaf_to_idx = {name: i for i, name in enumerate(leaf_names)}
+
+        def one_hot_fallback() -> np.ndarray:
+            out = np.zeros((n_samples, n_leaves), dtype=float)
+            try:
+                paths = clf.predict(X_test)
+            except Exception:
+                return out
+            for i, path in enumerate(paths):
+                if isinstance(path, (list, tuple, np.ndarray)):
+                    for node in reversed(list(path)):
+                        if node in leaf_to_idx:
+                            out[i, leaf_to_idx[node]] = 1.0
+                            break
+            return out
+
         probas_per_level = clf.predict_proba(X_test)
-
-        leaf_nodes = {
-            node
-            for node in clf.hierarchy_.nodes()
-            if node is not None and node != clf.root_ and clf.hierarchy_.out_degree(node) == 0
-        }
-
-        num_samples = X_test.shape[0]
-        leaf_scores = np.zeros((num_samples, len(mlb.classes_)), dtype=float)
-        leaf_to_mlb_idx = {name: i for i, name in enumerate(mlb.classes_)}
-
-        global_maps = getattr(clf, "global_class_to_index_mapping_", None)
-
         if not isinstance(probas_per_level, (list, tuple)):
             probas_per_level = [probas_per_level]
 
-        n_levels = len(probas_per_level)
+        global_maps = getattr(clf, "global_class_to_index_mapping_", None)
+        if not (isinstance(global_maps, (list, tuple)) and all(isinstance(m, dict) for m in global_maps)):
+            return one_hot_fallback()
 
-        for i in range(num_samples):
-            for leaf in leaf_nodes:
-                try:
-                    path = nx.shortest_path(clf.hierarchy_, source=clf.root_, target=leaf)[1:]
-                except (nx.NetworkXNoPath, KeyError):
-                    continue
+        hierarchy = getattr(clf, "hierarchy_", None)
+        root = getattr(clf, "root_", None)
+        if hierarchy is None or root is None:
+            return one_hot_fallback()
 
-                path = [n for n in path if n is not None]
+        def coerce_level_matrix(P) -> np.ndarray | None:
+            if isinstance(P, np.ndarray):
+                if P.ndim == 2:
+                    if P.shape[0] == n_samples:
+                        return P
+                    if P.shape[1] == n_samples:
+                        return P.T
+                    return None
+                return None
+            if isinstance(P, (list, tuple)):
+                if len(P) == 0:
+                    return None
+                arrs = [np.asarray(a) for a in P]
+                if all(a.ndim == 1 and a.shape[0] == n_samples for a in arrs):
+                    return np.column_stack(arrs)
+                if all(a.ndim == 2 and a.shape[0] == n_samples for a in arrs):
+                    return np.concatenate(arrs, axis=1)
+                return None
+            return None
+
+        level_mats: list[np.ndarray] = []
+        for lvl, P in enumerate(probas_per_level):
+            M = coerce_level_matrix(P)
+            if M is None:
+                return one_hot_fallback()
+
+            lvl_map = global_maps[lvl] if lvl < len(global_maps) else {}
+            valid_indices = [idx for node, idx in lvl_map.items() if node is not None]
+            needed_cols = (max(valid_indices) + 1) if valid_indices else 0
+            if needed_cols and M.shape[1] < needed_cols:
+                return one_hot_fallback()
+            level_mats.append(M)
+
+        leaf_paths: dict[str, list] = {}
+        for leaf in leaf_names:
+            try:
+                path = nx.shortest_path(hierarchy, source=root, target=leaf)
+            except Exception:
+                leaf_paths[leaf] = None
+                continue
+            path = [n for n in path if n is not None and n != root]
+            leaf_paths[leaf] = path if path else None
+
+        scores = np.zeros((n_samples, n_leaves), dtype=float)
+
+        for i in range(n_samples):
+            for leaf_idx, leaf in enumerate(leaf_names):
+                path = leaf_paths.get(leaf)
                 if not path:
                     continue
 
-                path_prob = 1.0
+                prob = 1.0
                 ok = True
-
                 for level, node in enumerate(path):
-                    if level >= n_levels:
+                    if level >= len(level_mats):
+                        ok = False
+                        break
+                    P = level_mats[level]
+                    if i >= P.shape[0]:
                         ok = False
                         break
 
-                    level_probas = probas_per_level[level]
-                    if isinstance(level_probas, list):
-                        level_probas = np.asarray(level_probas)
+                    lvl_map = global_maps[level] if level < len(global_maps) else {}
+                    col_idx = lvl_map.get(node, None)
 
-                    if level_probas.ndim == 1:
-                        if level_probas.shape[0] <= i:
-                            ok = False
-                            break
-                        node_prob = float(level_probas[i])
-                    else:
-                        if level_probas.shape[0] <= i:
-                            ok = False
-                            break
-
-                        class_index = None
-                        if global_maps is not None and len(global_maps) > level:
-                            class_index = global_maps[level].get(node, None)
-
-                        if class_index is None:
-                            node_prob = 0.0
-                        else:
-                            if 0 <= class_index < level_probas.shape[1]:
-                                node_prob = float(level_probas[i, class_index])
-                            else:
-                                node_prob = 0.0
-
-                    path_prob *= node_prob
-                    if path_prob == 0.0:
+                    if col_idx is None or col_idx >= P.shape[1]:
+                        ok = False
                         break
 
-                if not ok:
-                    continue
+                    prob *= float(P[i, col_idx])
+                    if prob == 0.0:
+                        ok = False
+                        break
 
-                if leaf in leaf_to_mlb_idx:
-                    mlb_idx = leaf_to_mlb_idx[leaf]
-                    leaf_scores[i, mlb_idx] = path_prob
+                if ok:
+                    scores[i, leaf_idx] = prob
 
-        return leaf_scores
+        zero_rows = np.where(np.all(scores == 0, axis=1))[0]
+        if len(zero_rows) > 0:
+            oh = one_hot_fallback()
+            scores[zero_rows] = oh[zero_rows]
+        return scores
+
+
 
     def run(self, prepared_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         mlb = prepared_data.get("mlb")

@@ -283,7 +283,7 @@ class ExperimentOrchestrator:
 if __name__ == "__main__":
     DATASET_DIRS = [
         # "unified_datasets/custom_intents",
-        # "unified_datasets/dbpedia_classes",
+        "unified_datasets/dbpedia_classes",
         "unified_datasets/wiki_academic_subjects",
     ]
     orchestrator = ExperimentOrchestrator(
