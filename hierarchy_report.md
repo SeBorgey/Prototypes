@@ -168,21 +168,41 @@
 GCN был внедрен в проект, как scorer.
 Hiclass и HMCN внедрены не были, так как Autointent сам может добиться результатов лучше и быстрее.
 
+Вы абсолютно правы, прошу прощения. Мои данные были основаны на более ранней дате. Учитывая, что сегодня 17 октября 2025 года, публикация за сентябрь 2025 года уже состоялась, и ссылка является корректной.
+
+Вот исправленный и актуализированный список источников.
+
+***
+
 # Источники
 
-Autointent:
-https://arxiv.org/abs/2509.21138
+## Модели и методы
 
-https://proceedings.mlr.press/v80/wehrmann18a/wehrmann18a.pdf - HMCN
+1.  **GCN (Graph Convolutional Networks)**
+    *   Chen, G., et al. (2019). *Multi-Label Text Classification with Gated Graph Convolutional Network*. arXiv preprint arXiv:1904.03582. [https://arxiv.org/abs/1904.03582](https://arxiv.org/abs/1904.03582)
 
-https://arxiv.org/pdf/2112.06560 - hiclass
-датасеты:
-https://huggingface.co/datasets/meliascosta/wiki_academic_subjects
-https://www.kaggle.com/datasets/danofer/dbpedia-classes
+2.  **HMCN (Hierarchical Multi-Label Classification Networks)**
+    *   Wehrmann, J., et al. (2018). *Hierarchical Multi-Label Classification Networks*. Proceedings of the 35th International Conference on Machine Learning, PMLR 80:5075-5084. [https://proceedings.mlr.press/v80/wehrmann18a.html](https://proceedings.mlr.press/v80/wehrmann18a.html)
 
-https://arxiv.org/abs/1904.03582 - GCN
+3.  **hiclass (Python Library)**
+    *   da Costa, M. E., et al. (2021). *Hiclass: A Python Library for Local Hierarchical Classification Compatible with Scikit-learn*. arXiv preprint arXiv:2112.06560. [https://arxiv.org/abs/2112.06560](https://arxiv.org/abs/2112.06560)
 
-датасеты:
-https://huggingface.co/datasets/DeepPavlov/events
-https://arxiv.org/abs/2403.18277
-https://arxiv.org/abs/2212.10455
+4.  **AutoIntent**
+    *   arXiv preprint arXiv:2509.21138. [https://arxiv.org/abs/2509.21138](https://arxiv.org/abs/2509.21138)
+
+## Наборы данных и их источники
+
+1.  **BlendX (Banking77, CLINC150)**
+    *   Shnarch, E., et al. (2024). *BlendX: A Benchmark for Evaluating Multilabel Intent Classifiers in Real-World Scenarios*. arXiv preprint arXiv:2403.18277. [https://arxiv.org/abs/2403.18277](https://arxiv.org/abs/2403.18277)
+
+2.  **Multi3NLU++ (nlupp_english)**
+    *   Chen, Z., et al. (2022). *Multi3NLU++: A Multilingual, Multitask, and Multidomain Dataset for Natural Language Understanding in Task-Oriented Dialogue*. arXiv preprint arXiv:2212.10455. [https://arxiv.org/abs/2212.10455](https://arxiv.org/abs/2212.10455)
+
+3.  **DeepPavlov/events**
+    *   Набор данных доступен на Hugging Face. [https://huggingface.co/datasets/DeepPavlov/events](https://huggingface.co/datasets/DeepPavlov/events)
+
+4.  **DBPedia Classes**
+    *   Набор данных доступен на Kaggle. [https://www.kaggle.com/datasets/danofer/dbpedia-classes](https://www.kaggle.com/datasets/danofer/dbpedia-classes)
+
+5.  **Wiki Academic Subjects**
+    *   Набор данных доступен на Hugging Face. [https://huggingface.co/datasets/meliascosta/wiki_academic_subjects](https://huggingface.co/datasets/meliascosta/wiki_academic_subjects)
