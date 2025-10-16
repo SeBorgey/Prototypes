@@ -188,7 +188,7 @@ Hiclass и HMCN внедрены не были, так как Autointent сам 
     *   da Costa, M. E., et al. (2021). *Hiclass: A Python Library for Local Hierarchical Classification Compatible with Scikit-learn*. arXiv preprint arXiv:2112.06560. [https://arxiv.org/abs/2112.06560](https://arxiv.org/abs/2112.06560)
 
 4.  **AutoIntent**
-    *   arXiv preprint arXiv:2509.21138. [https://arxiv.org/abs/2509.21138](https://arxiv.org/abs/2509.21138)
+    * Alekseev, I., et al. (2025). *AutoIntent: AutoML for Text Classification.* arXiv preprint arXiv:2509.21138. [https://arxiv.org/abs/2509.21138](https://arxiv.org/abs/2509.21138)
 
 ## Наборы данных и их источники
 
